@@ -15,25 +15,28 @@
 #       sbatch --account=aip-boyuwang --export=PHASE=train slurm_ma_tom.sh
 #
 # Phases (PHASE env):
-#   train   : IPPO self-play (H100, up to 3 days)
-#   train_v2: Handicapped-partner fine-tune (H100, ~6h)
-#   probe   : ToM probing pipeline (~2-4h)
+#   train   : IPPO self-play (L40S by default — shorter queue than H100)
+#   train_v2: Handicapped-partner fine-tune
+#   probe   : ToM probing pipeline
 #   smoke   : Quick sanity check (~5 min)
 #
-# Submit examples:
+# GPU: default is **L40S** (`--gres=gpu:l40s:1`). Do not mix H100 partitions with L40S gres.
+# For H100 / long runs, override at submit time, e.g.:
+#   sbatch --partition=gpubase_h100_b4 --gpus-per-node=h100:1 \
+#          --cpus-per-task=16 --mem=64G --export=PHASE=train slurm_ma_tom.sh
+#
+# Submit:
 #   sbatch --export=PHASE=train slurm_ma_tom.sh
-#   sbatch --export=PHASE=probe --partition=default --gres=gpu:l40s:1 --time=0-06:00:00 slurm_ma_tom.sh
 # ============================================================
 
 #SBATCH --job-name=ma-tom
 #SBATCH --account=aip-boyuwang
-#SBATCH --time=3-00:00:00               # 3 days wall (gpubase_h100_b4 allows up to 4)
+#SBATCH --time=3-00:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --partition=gpubase_h100_b4
-#SBATCH --gpus-per-node=h100:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=50G
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --output=%x-%j.out
 #SBATCH --mail-type=BEGIN,END,FAIL
 

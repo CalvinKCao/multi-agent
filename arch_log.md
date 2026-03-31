@@ -2,6 +2,13 @@
 
 ---
 
+## 2026-03-31 — `slurm_ma_tom.sh` default GPU: L40S
+
+- Default Slurm request is **`--gres=gpu:l40s:1`**, **50G** RAM, **8** CPUs (no H100 partition).
+- H100 remains available via explicit `sbatch` overrides in script comments.
+
+---
+
 ## 2026-03-31 — `.ai` manifest, Alliance paths, Slurm script fix
 
 - `.ai/.lnai-manifest.json`: added `metadata` (cluster path guide, skills source dir, sync note for symlinked tools).
