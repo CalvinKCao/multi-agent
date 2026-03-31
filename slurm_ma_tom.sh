@@ -2,28 +2,31 @@
 # ============================================================
 # Multi-Agent ToM Experiment — Killarney Slurm submission
 #
-# IMPORTANT: change --account below to your CCDB group name.
+# Paths (same idea as ts-sandbox Slurm scripts):
+#   - Clone / run the repo from $SCRATCH/drc-sokoban-ma  (NOT $SCRATCH/$USER/...
+#     on Killarney $SCRATCH is usually already /scratch/<user>, so doubling
+#     $USER breaks with "No such file or directory").
+#   - Checkpoints, venv, wandb: $PROJECT/$USER/drc-sokoban-ma/...
 #
-# This script handles all phases via the PHASE env variable:
+# Account:
+#   - #SBATCH --account= must be your exact CCDB Group Name (e.g. aip-boyuwang).
+#   - Do NOT sed-replace the account line to a placeholder string — Slurm will
+#     reject the job. Override at submit time if needed:
+#       sbatch --account=aip-boyuwang --export=PHASE=train slurm_ma_tom.sh
+#
+# Phases (PHASE env):
 #   train   : IPPO self-play (H100, up to 3 days)
 #   train_v2: Handicapped-partner fine-tune (H100, ~6h)
 #   probe   : ToM probing pipeline (~2-4h)
 #   smoke   : Quick sanity check (~5 min)
 #
 # Submit examples:
-#   # Training phase (H100, default):
 #   sbatch --export=PHASE=train slurm_ma_tom.sh
-#
-#   # Probing phase on L40S (faster queue, probe is CPU-bound):
-#   sbatch --export=PHASE=probe \
-#          --partition=default --gres=gpu:l40s:1 --time=0-06:00:00 \
-#          slurm_ma_tom.sh
-#
-# Adjust REPO_DIR / DATA_DIR / VENV_DIR to match your cluster layout.
+#   sbatch --export=PHASE=probe --partition=default --gres=gpu:l40s:1 --time=0-06:00:00 slurm_ma_tom.sh
 # ============================================================
 
 #SBATCH --job-name=ma-tom
-#SBATCH --account=aip-boyuwang          # <-- change to your CCDB group name
+#SBATCH --account=aip-boyuwang
 #SBATCH --time=3-00:00:00               # 3 days wall (gpubase_h100_b4 allows up to 4)
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -34,26 +37,53 @@
 #SBATCH --output=%x-%j.out
 #SBATCH --mail-type=BEGIN,END,FAIL
 
+set -e
+export PYTHONUNBUFFERED=1
+
 PHASE="${PHASE:-train}"
 echo "Phase: ${PHASE}"
 
 # ============================================================
-# Paths (edit these to match your cluster layout)
+# Paths — mirror ts-sandbox: PROJECT_ROOT under SCRATCH, storage under PROJECT
 # ============================================================
-REPO_DIR="${SCRATCH}/${USER}/drc-sokoban-ma"
-DATA_DIR="${PROJECT}/${USER}/drc-sokoban-ma/data/boxoban_levels"
-VENV_DIR="${PROJECT}/${USER}/drc-sokoban-ma/venv"
-CKPT_DIR="${PROJECT}/${USER}/drc-sokoban-ma/checkpoints"
-RES_DIR="${PROJECT}/${USER}/drc-sokoban-ma/results"
-
-# Fallback to HOME if SCRATCH/PROJECT not set (e.g. interactive testing)
-if [[ -z "$SCRATCH" ]]; then
-    REPO_DIR="${HOME}/drc-sokoban-ma"
-    DATA_DIR="${HOME}/data/boxoban_levels"
-    VENV_DIR="${HOME}/drc-sokoban-ma/venv"
-    CKPT_DIR="${HOME}/drc-sokoban-ma/checkpoints"
-    RES_DIR="${HOME}/drc-sokoban-ma/results"
+if [[ -n "${SCRATCH}" && -d "${SCRATCH}/drc-sokoban-ma" ]]; then
+    export PROJECT_ROOT="${SCRATCH}/drc-sokoban-ma"
+elif [[ -d "${HOME}/drc-sokoban-ma" ]]; then
+    export PROJECT_ROOT="${HOME}/drc-sokoban-ma"
+else
+    echo "ERROR: drc-sokoban-ma not found."
+    echo "  Clone on Killarney:  cd \"\${SCRATCH}\" && git clone <url> drc-sokoban-ma"
+    echo "  (do not use cd \"\\\$SCRATCH/\\\$USER\" unless your site uses that layout)"
+    exit 1
 fi
+
+if [[ -z "${PROJECT}" && -d "${HOME}/projects" ]]; then
+    shopt -s nullglob
+    _proj_candidates=("${HOME}"/projects/def-* "${HOME}"/projects/aip-*)
+    shopt -u nullglob
+    if [[ ${#_proj_candidates[@]} -gt 0 ]]; then
+        PROJECT=$(readlink -f "${_proj_candidates[0]}")
+        export PROJECT
+    fi
+fi
+
+if [[ -z "${PROJECT}" ]]; then
+    echo "ERROR: PROJECT not set. Example:"
+    echo "  export PROJECT=\$(readlink -f ~/projects/aip-boyuwang)"
+    exit 1
+fi
+
+STORAGE_ROOT="${PROJECT}/${USER}/drc-sokoban-ma"
+DATA_DIR="${STORAGE_ROOT}/data/boxoban_levels"
+VENV_DIR="${STORAGE_ROOT}/venv"
+CKPT_DIR="${STORAGE_ROOT}/checkpoints"
+RES_DIR="${STORAGE_ROOT}/results"
+
+mkdir -p "${STORAGE_ROOT}" "${CKPT_DIR}" "${RES_DIR}"
+
+echo "PROJECT_ROOT=${PROJECT_ROOT}"
+echo "STORAGE_ROOT=${STORAGE_ROOT}"
+echo "PROJECT=${PROJECT}"
 
 # ============================================================
 # Environment setup
@@ -71,15 +101,13 @@ if [[ ! -d "${VENV_DIR}" ]]; then
     source "${VENV_DIR}/bin/activate"
     pip install --upgrade pip
     pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-    pip install -r "${REPO_DIR}/drc_sokoban/requirements.txt"
+    pip install -r "${PROJECT_ROOT}/drc_sokoban/requirements.txt"
     pip install wandb tqdm
 else
     source "${VENV_DIR}/bin/activate"
 fi
 
-cd "${REPO_DIR}"
-
-mkdir -p "${CKPT_DIR}" "${RES_DIR}"
+cd "${PROJECT_ROOT}"
 
 # Log GPU info for debugging
 echo "=== GPU info ==="

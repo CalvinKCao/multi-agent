@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-03-31 — `.ai` manifest, Alliance paths, Slurm script fix
+
+- `.ai/.lnai-manifest.json`: added `metadata` (cluster path guide, skills source dir, sync note for symlinked tools).
+- `.ai/cluster-paths.md`: documents Killarney `$SCRATCH` vs `$USER` (no doubled path), Slurm account rules (no placeholder `sed`).
+- `.ai/AGENTS.md`: Alliance/Killarney section pointing at cluster-paths + alliancecan skill.
+- `.ai/skills/alliancecan/SKILL.md`: expanded pitfalls (account, SCRATCH, PROJECT auto-detect, ts-sandbox alignment).
+- `slurm_ma_tom.sh`: `PROJECT_ROOT` = `$SCRATCH/drc-sokoban-ma` or `$HOME/...`; `STORAGE_ROOT` = `$PROJECT/$USER/drc-sokoban-ma`; removed broken `REPO_DIR=$SCRATCH/$USER/...`; auto-detect `PROJECT`; `set -e`, `PYTHONUNBUFFERED`.
+- `drc_sokoban/onboard.md`: gotchas for SCRATCH clone path and Slurm account.
+
+---
+
 ## 2026-03-31 — Multi-Agent ToM Extension
 
 ### Added

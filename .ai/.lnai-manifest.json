@@ -1,5 +1,10 @@
 {
   "version": 1,
+  "metadata": {
+    "clusterPathGuide": ".ai/cluster-paths.md",
+    "skillsSourceDir": ".ai/skills",
+    "syncNote": "Edit skills under .ai/skills/ only. Cursor/Copilot/Windsurf/Gemini/Codex symlink into tool-specific folders per tools.*.files — do not duplicate SKILL.md copies in those folders."
+  },
   "tools": {
     "claudeCode": {
       "version": 1,
@@ -43,7 +48,7 @@
     "cursor": {
       "version": 1,
       "tool": "cursor",
-      "generatedAt": "2026-03-27T19:16:52.389Z",
+      "generatedAt": "2026-03-31T00:00:00.000Z",
       "files": [
         {
           "path": "AGENTS.md",

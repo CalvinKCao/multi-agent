@@ -93,7 +93,12 @@ arch_log.md                 Append-only change history
 - MA env stores ONLY {WALL,FLOOR,TARGET,BOX} in grid; agent positions are separate tuples.
   Don't mix up with single-agent env which embeds AGENT tiles in the grid.
 - `train_ma.py` uses `PYTHONUNBUFFERED=1` / `-u` flag in Slurm for log flushing.
-- On Killarney, code MUST run from `$SCRATCH`, not `$HOME`.
+- On Killarney, GPU jobs MUST run from **`$SCRATCH/drc-sokoban-ma`**, not `$HOME`.
+  **`$SCRATCH` is already `/scratch/<username>`** — do **not** `cd $SCRATCH/$USER` (that
+  becomes `/scratch/user/user` and fails). Clone with: `cd $SCRATCH && git clone … drc-sokoban-ma`.
+- Slurm **`--account=`** must be your real CCDB Group Name (e.g. `aip-boyuwang`). Never
+  replace it in scripts with a placeholder string via `sed`.
+- See **`.ai/cluster-paths.md`** and **`slurm_ma_tom.sh`** (paths match `ts-sandbox` style).
 - WandB run ID is saved alongside each checkpoint as `<ckpt_base>_wandb_run_id.txt`.
   Delete this file if you want a fresh WandB run on resume.
 - The `partner_noise_eps` flag creates the handicapped v2 partner — this is NOT a
