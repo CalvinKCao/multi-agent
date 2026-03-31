@@ -1,11 +1,60 @@
 ---
 name: alliancecan
-description: Alliance Canada (Compute Canada) Slurm clusters — jobs, storage, modules, Killarney GPUs, per-user paths, and Slurm account pitfalls. Use when editing Slurm scripts, cluster setup, or HPC workflows for docs.alliancecan.ca systems.
+description: Alliance Canada Slurm clusters — default to L40S on Killarney, jobs, storage, modules, paths, and account pitfalls. Use when editing Slurm scripts, cluster setup, or HPC workflows for docs.alliancecan.ca systems.
 ---
 
 # Alliance Canada HPC
 
 Apply when working on Slurm job scripts, cluster setup, paths, or GPU requests for Alliance national systems (Killarney, Fir, Narval, Nibi, Rorqual, Trillium, etc.).
+
+## Default GPU for this repo: **L40S (always prefer this first)**
+
+For **Killarney**, treat **NVIDIA L40S** as the **default** GPU in new or edited Slurm scripts unless the user explicitly asks for H100/A100 or you know they need 80 GB VRAM.
+
+**Why:** L40S usually has a **much shorter queue** than H100 performance tiers. H100 is overkill for many PoC / IPPO / probe workloads and can sit in `PD` for hours.
+
+### How to request L40S (standard pattern)
+
+In the job script, use **`--gres`** — **do not** put H100-only partitions (`gpubase_h100_*`) together with L40S `gres` (incompatible).
+
+```bash
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=50G
+# Optional: shorter wall for faster scheduling
+#SBATCH --time=1-00:00:00
+```
+
+Submit from the repo directory:
+
+```bash
+sbatch --account=<your-ccdb-group> your_job.sh
+# or if #SBATCH --account= is already in the file:
+sbatch your_job.sh
+```
+
+**Verify** what Slurm recorded (after submit):
+
+```bash
+scontrol show job=<JOBID> | egrep -i 'ReqTRES|TRES=|MinMem'
+```
+
+You should see **`l40s`** in the GRES line, not `h100`.
+
+### When to use H100 instead (opt-in)
+
+Use **H100** only when the workload needs **large GPU memory** (e.g. huge batches, very large models) or the user asks for the performance tier. Typical Killarney pattern:
+
+```bash
+#SBATCH --partition=gpubase_h100_b4
+#SBATCH --gpus-per-node=h100:1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=64G
+```
+
+Match **`b1`…`b5`** partition letter to **max wall time** allowed on that queue (`sinfo -o "%P %G %l"`). **Never** mix `gpubase_h100_*` with `--gres=gpu:l40s:1`.
+
+---
 
 ## Slurm account (read this first — common failure mode)
 
@@ -41,7 +90,7 @@ Only use `$SCRATCH/$USER/<repo>` if **your site documentation** says scratch is 
 - **Scheduler:** Slurm only. No compute on login nodes except tiny tasks (~≤10 CPU-minutes, ~≤4 GB RAM). Everything else: `sbatch`, `salloc`, `srun`.
 - **Minimum directives:** Always set **`#SBATCH --time=...`**. Add **`--mem`** or **`--mem-per-cpu`** on general-purpose clusters (default can be very small per core). `#SBATCH` lines must come **before** any shell commands in the script.
 - **Do not** hammer Slurm with `squeue`/`sq` in tight loops; use mail notifications or reasonable polling.
-- **Alliance guidance:** Prefer **not** pinning `--partition` unless software forces it; if something insists on a partition, `default` is treated like “let the scheduler decide.” This repo sometimes sets Killarney H100 partitions explicitly—verify with `sinfo` on the target system.
+- **Partitions:** Prefer **L40S + `--gres`** as default; only pin **`gpubase_h100_*`** when the user needs H100. Verify live with `sinfo` on the target system.
 
 ## Where to put files (storage hygiene)
 
@@ -67,26 +116,19 @@ fi
 
 Then set storage, e.g. `STORAGE_ROOT="$PROJECT/$USER/drc-sokoban-ma"` for checkpoints, wandb, venv.
 
-## Killarney (GPUs and layout)
+## Killarney — hardware reference (verify with `sinfo`)
 
 This cluster is common for this repo. **Verify live** with `sinfo -o "%P %G %l"` and `scontrol show node | grep -i gres`—names and partitions change.
 
-From repo patterns and `ts-sandbox/setup/alliance_setup_killarney.sh`:
+- **L40S (default tier for scripts in this repo):** Standard compute; request with `#SBATCH --gres=gpu:l40s:1`. Example scripts: `slurm_ci_latent_etth2.sh`, **`slurm_ma_tom.sh`** (default), `slurm_latent_experiment.sh`.
+- **H100 (optional, heavy jobs):** Dell XE9680-class nodes, **8× H100 SXM 80GB** per node. Use `#SBATCH --partition=gpubase_h100_b*` + `#SBATCH --gpus-per-node=h100:N` — **not** mixed with L40S `gres`.
 
-- **Performance tier (H100):** Dell XE9680-class nodes with **8× NVIDIA H100 SXM 80GB** per node (docs/setup: 48 cores, ~2 TB RAM class). Submit with something like:
-  - `#SBATCH --partition=gpubase_h100_b4` (example: **b4** = up to **4 days** wall time—match partition letter to desired max time: `b1`…`b5` for shorter→longer caps per local policy)
-  - `#SBATCH --gpus-per-node=h100:1` (or `:4`, `:8` for multi-GPU)
-- **Standard tier (L40S):** Often **shorter queue** for smaller jobs. Example pattern: `#SBATCH --gres=gpu:l40s:1` (no `gpubase_h100_*` mix-up—those partitions are **H100-specific**).
-- **Choosing GPU vs partition:**
-  - Need **80 GB** and heavy training → **H100** + appropriate `gpubase_h100_*` and wall-time partition.
-  - Smoke tests, smaller memory → **L40S** via `--gres=gpu:l40s:1` is often faster to start.
-  - **Never** combine incompatible partition/GRES (e.g. H100 partition with L40S `gres`—follow working examples in-repo and cluster `sinfo`).
 - **Code location:** Killarney **must not run GPU work from `/home`**; keep a checkout under **`$SCRATCH/<repo-name>`** (e.g. `$SCRATCH/drc-sokoban-ma`, same idea as `$SCRATCH/ts-sandbox` in the other repo).
 - **Account prefix:** Allocations may show as **`aip-...`** on Killarney vs **`def-...`** elsewhere—use the CCDB **Group Name** for `--account`.
 
 ## Other clusters (quick reference)
 
-Repo comments (`slurm_pipeline.sh`): **Narval** → e.g. A100; **Fir / Nibi / Rorqual** → e.g. H100-style requests. Always match **`--account`** to an allocation **valid on that cluster** (RAPs are not always portable).
+Repo comments (`slurm_pipeline.sh`): **Narval** → e.g. A100; **Fir / Nibi / Rorqual** → e.g. H100-style requests. Always match **`--account`** to an allocation **valid on that cluster** (RAPs are not always portable). Default to **smaller / general GPU** when unsure, not the largest SKU.
 
 ## Software modules (typical ML stack)
 
@@ -106,8 +148,8 @@ Load **CUDA/cuDNN** versions compatible with your PyTorch build. If a module fai
 
 - **`#SBATCH --account=aip-boyuwang`** — example only; **replace with your real CCDB group name** if different, never with a fake placeholder string.
 - **Venv and bulky data:** `$PROJECT/$USER/<app>/venv` (and checkpoints/results under the same tree)—**per-user under project**, not the bare group directory.
-- **Killarney smoke vs full:** `slurm_unet_fullvar.sh` submits **L40S** for `--smoke-test`, **H100** + `gpubase_h100_b4` for full runs.
-- **Latent experiments:** `slurm_latent_experiment.sh` uses `--gres=gpu:l40s:1` by default; comments document switching to H100 partitions for long runs.
+- **`slurm_ma_tom.sh`:** defaults to **L40S** (`--gres=gpu:l40s:1`); H100 only via explicit `sbatch` overrides (see script header).
+- **`slurm_unet_fullvar.sh` (ts-sandbox):** **L40S** for `--smoke-test`, **H100** + `gpubase_h100_b4` for full runs.
 - **`PYTHONUNBUFFERED=1`** and **`python -u`** help with Slurm log latency (buffering).
 
 ## Gotchas (see also project `onboard.md` and `.ai/cluster-paths.md`)
@@ -117,6 +159,7 @@ Load **CUDA/cuDNN** versions compatible with your PyTorch build. If a module fai
 - **Slurm output buffering** can make logs look “stuck”; use unbuffered Python or interactive `salloc` to debug.
 - **`module purge` in jobs** avoids surprise inherited environments from the submission shell.
 - **`sbatch` from scripts:** Do not submit thousands of jobs at once; prefer **arrays** or spacing submissions—Alliance warns this can harm Slurm.
+- **Stale script on cluster:** If `squeue` still shows H100/64G after switching to L40S, **`git pull`** on the cluster clone and **resubmit** — old `#SBATCH` lines are baked in at submit time.
 
 ## Official docs
 

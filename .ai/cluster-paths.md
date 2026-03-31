@@ -20,6 +20,13 @@ ls ~/projects/
 export PROJECT=$(readlink -f ~/projects/aip-YOURGROUP)   # example
 ```
 
+## Slurm stdout / stderr (where are my logs?)
+
+- `#SBATCH --output=foo.out` **without a leading `/`** is resolved relative to the **directory you were in when you ran `sbatch`**, not the repo path the job `cd`s to later.
+- So `ma-tom-12345.out` often lands in `$HOME` or whatever cwd you submitted from — **not** under `$SCRATCH/drc-sokoban-ma` unless you submitted from there.
+- **Find a finished job’s paths:** `sacct -j <JOBID> --format=JobID,JobName,WorkDir,StdOut,State,ExitCode`
+- This repo’s `slurm_ma_tom.sh` uses `--output=/scratch/%u/slurm_logs/%x-%j.out` so logs live under **`/scratch/<you>/slurm_logs/`** (create once: `mkdir -p /scratch/$USER/slurm_logs`).
+
 ## Slurm `--account` (critical)
 
 - The value is the **CCDB Group Name** (Resource Allocation Project), not a free-text label.

@@ -37,7 +37,11 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=50G
 #SBATCH --gres=gpu:l40s:1
-#SBATCH --output=%x-%j.out
+# Logs: Slurm resolves paths at submit time. A *relative* --output goes to the
+# directory where you ran `sbatch`, NOT where this script later `cd`s — easy to
+# "lose" ma-tom-JOBID.out.  We pin logs under /scratch/<user>/slurm_logs/ instead.
+# Create once on Killarney:   mkdir -p /scratch/$USER/slurm_logs
+#SBATCH --output=/scratch/%u/slurm_logs/%x-%j.out
 #SBATCH --mail-type=BEGIN,END,FAIL
 
 set -e
