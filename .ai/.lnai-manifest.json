@@ -1,0 +1,234 @@
+{
+  "version": 1,
+  "tools": {
+    "claudeCode": {
+      "version": 1,
+      "tool": "claudeCode",
+      "generatedAt": "2026-03-23T14:46:54.340Z",
+      "files": [
+        {
+          "path": ".claude/CLAUDE.md",
+          "type": "symlink",
+          "target": "../.ai/AGENTS.md"
+        },
+        {
+          "path": ".claude/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        }
+      ]
+    },
+    "opencode": {
+      "version": 1,
+      "tool": "opencode",
+      "generatedAt": "2026-03-23T14:46:54.350Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".agents/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        },
+        {
+          "path": "opencode.json",
+          "type": "json",
+          "hash": "3a1689520689222b217d5107e8e7becc3fbbd2aae41dc086435cd6a941b650c1"
+        }
+      ]
+    },
+    "cursor": {
+      "version": 1,
+      "tool": "cursor",
+      "generatedAt": "2026-03-27T19:16:52.389Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".cursor/skills/alliancecan",
+          "type": "symlink",
+          "target": "../../.ai/skills/alliancecan"
+        },
+        {
+          "path": ".cursor/skills/messy",
+          "type": "symlink",
+          "target": "../../.ai/skills/messy"
+        },
+        {
+          "path": ".cursor/skills/natural",
+          "type": "symlink",
+          "target": "../../.ai/skills/natural"
+        },
+        {
+          "path": ".cursor/skills/quick",
+          "type": "symlink",
+          "target": "../../.ai/skills/quick"
+        },
+        {
+          "path": ".cursor/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        }
+      ]
+    },
+    "copilot": {
+      "version": 1,
+      "tool": "copilot",
+      "generatedAt": "2026-03-27T19:16:52.399Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".github/skills/alliancecan",
+          "type": "symlink",
+          "target": "../../.ai/skills/alliancecan"
+        },
+        {
+          "path": ".github/skills/messy",
+          "type": "symlink",
+          "target": "../../.ai/skills/messy"
+        },
+        {
+          "path": ".github/skills/natural",
+          "type": "symlink",
+          "target": "../../.ai/skills/natural"
+        },
+        {
+          "path": ".github/skills/quick",
+          "type": "symlink",
+          "target": "../../.ai/skills/quick"
+        },
+        {
+          "path": ".github/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        }
+      ]
+    },
+    "windsurf": {
+      "version": 1,
+      "tool": "windsurf",
+      "generatedAt": "2026-03-27T19:16:52.403Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".windsurf/skills/alliancecan",
+          "type": "symlink",
+          "target": "../../.ai/skills/alliancecan"
+        },
+        {
+          "path": ".windsurf/skills/messy",
+          "type": "symlink",
+          "target": "../../.ai/skills/messy"
+        },
+        {
+          "path": ".windsurf/skills/natural",
+          "type": "symlink",
+          "target": "../../.ai/skills/natural"
+        },
+        {
+          "path": ".windsurf/skills/quick",
+          "type": "symlink",
+          "target": "../../.ai/skills/quick"
+        },
+        {
+          "path": ".windsurf/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        }
+      ]
+    },
+    "gemini": {
+      "version": 1,
+      "tool": "gemini",
+      "generatedAt": "2026-03-27T19:16:52.411Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".gemini/skills/alliancecan",
+          "type": "symlink",
+          "target": "../../.ai/skills/alliancecan"
+        },
+        {
+          "path": ".gemini/skills/messy",
+          "type": "symlink",
+          "target": "../../.ai/skills/messy"
+        },
+        {
+          "path": ".gemini/skills/natural",
+          "type": "symlink",
+          "target": "../../.ai/skills/natural"
+        },
+        {
+          "path": ".gemini/skills/quick",
+          "type": "symlink",
+          "target": "../../.ai/skills/quick"
+        },
+        {
+          "path": ".gemini/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        },
+        {
+          "path": ".gemini/settings.json",
+          "type": "json",
+          "hash": "7b8b6ffcbc620569ad9c0df7dc278d3e41c5dafb9065a8578827241defd4e886"
+        }
+      ]
+    },
+    "codex": {
+      "version": 1,
+      "tool": "codex",
+      "generatedAt": "2026-03-27T19:16:52.414Z",
+      "files": [
+        {
+          "path": "AGENTS.md",
+          "type": "symlink",
+          "target": ".ai/AGENTS.md"
+        },
+        {
+          "path": ".agents/skills/alliancecan",
+          "type": "symlink",
+          "target": "../../.ai/skills/alliancecan"
+        },
+        {
+          "path": ".agents/skills/messy",
+          "type": "symlink",
+          "target": "../../.ai/skills/messy"
+        },
+        {
+          "path": ".agents/skills/natural",
+          "type": "symlink",
+          "target": "../../.ai/skills/natural"
+        },
+        {
+          "path": ".agents/skills/quick",
+          "type": "symlink",
+          "target": "../../.ai/skills/quick"
+        },
+        {
+          "path": ".agents/skills/slidev",
+          "type": "symlink",
+          "target": "../../.ai/skills/slidev"
+        }
+      ]
+    }
+  }
+}

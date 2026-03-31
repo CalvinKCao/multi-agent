@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# ML / experiments
+checkpoints/
+wandb/
+*.pt
+*.pth
+*.pkl
+results/
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large dumps / local docs (optional — remove line if you want to track)
+docs.alliancecan.ca_mediawiki-*/
