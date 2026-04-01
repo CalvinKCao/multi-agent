@@ -6,9 +6,19 @@ policy sitting at solve=0 for 10–20M steps is not necessarily a bug — the
 task may just be extremely sparse.  If random solves occasionally appear,
 but training stays at 0, look at learning setup / credit assignment instead.
 
-Usage (on cluster, from repo root):
+Usage (Alliance / Killarney — use a real path, not literal "..."):
+
+    cd "${SCRATCH}/${USER}/drc-sokoban-ma"    # e.g. /scratch/ccao87/drc-sokoban-ma
+
+    # Login node has no numpy in system python — use the same venv as training:
+    source "${PROJECT}/${USER}/drc-sokoban-ma/venv/bin/activate"
+    # If venv lives elsewhere, adjust (see slurm_ma_tom.sh VENV_DIR).
+
     python -m drc_sokoban.scripts.ma_diagnose_solves \\
-        --data-dir /path/to/boxoban_levels --episodes 2000 --max-steps 400
+        --data-dir "${PROJECT}/${USER}/drc-sokoban-ma/data/boxoban_levels" \\
+        --episodes 5000 --max-steps 400
+
+Or run interactively on a compute node / in the job venv after module load.
 """
 
 import argparse
@@ -17,7 +27,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import numpy as np
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    sys.stderr.write(
+        "ma_diagnose_solves: numpy not found. On Alliance login nodes, use:\n"
+        "  source ${PROJECT}/${USER}/drc-sokoban-ma/venv/bin/activate\n"
+        "or: module load python/3.11 && pip install --user numpy\n"
+    )
+    raise
 
 from drc_sokoban.envs.ma_boxoban_env import MABoxobanEnv
 
