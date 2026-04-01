@@ -15,23 +15,41 @@ Three concepts:
          next push a box off cell (x,y)?
          Labels: same 5-class scheme as TA / single-agent CB.
 
-  TC  -- Partner goal target (binary)
-         For each cell (x,y) at timestep t: will the *next box B delivers to
-         a target* land on cell (x,y)?
+  TC  -- Partner delivery target (binary)
+         For each cell (x,y) at timestep t: will B's *next push that places a box
+         on a target* land on (x,y)?  Requires env ``onto_target`` on push events;
+         legacy trajectories fall back to "next push destination" only.
          Labels: 0 = no, 1 = yes.
-         This is a binary spatial concept rather than a directional one.
 
 All labels are shape (T, 8, 8) — indexed as label[t, row, col].
 """
 
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from drc_sokoban.probing.concept_labeler import (
     _direction, NEVER, UP, DOWN, LEFT, RIGHT, N_CLASSES,
 )
 
 GRID_SIZE = 8
+
+
+def _push_from_xy(push) -> Optional[Tuple[int, int]]:
+    """Normalize env trajectory entry to old box cell (x, y) = (col, row), or None."""
+    if push is None:
+        return None
+    if isinstance(push, dict):
+        return push.get("from_xy")
+    return push  # legacy: stored (x, y) directly
+
+
+def _push_onto_target(push) -> Optional[bool]:
+    """True/False from env; None if legacy pickle had no onto_target field."""
+    if push is None:
+        return None
+    if isinstance(push, dict):
+        return bool(push.get("onto_target"))
+    return None
 
 
 def label_partner_ta_tb(
@@ -45,8 +63,8 @@ def label_partner_ta_tb(
 
     Args:
         partner_positions: list of (x, y) = (col, row) per timestep, length T
-        partner_box_pushes: list of (x, y) old-box-cell per timestep if B pushed,
-                            else None.  Length T.
+        partner_box_pushes: per timestep: None, legacy (x, y) old-box-cell, or
+                            dict with from_xy / onto_target from the MA env.
         box_positions_seq:  global box positions at each timestep, length T.
                             (Used to compute TB direction.)
         grid_size:          8 for Boxoban
@@ -87,7 +105,7 @@ def label_partner_ta_tb(
     next_push_dir = np.full((G, G), NEVER, dtype=np.int32)
 
     for t in range(T - 1, 0, -1):
-        push_from_xy = partner_box_pushes[t]   # (x, y) = (col, row) or None
+        push_from_xy = _push_from_xy(partner_box_pushes[t])
         if push_from_xy is not None:
             ox, oy = push_from_xy   # (col, row)
             # Figure out where the box landed (appeared between t-1 and t)
@@ -108,19 +126,18 @@ def label_partner_ta_tb(
 
 
 def label_partner_tc(
-    partner_box_pushes: List[Optional[Tuple[int, int]]],
+    partner_box_pushes: List[Optional[Any]],
     box_positions_seq:  List[List[Tuple[int, int]]],
     grid_size: int = GRID_SIZE,
 ) -> np.ndarray:
     """
-    TC: binary label — is cell (x,y) the target of B's *next* delivered box?
+    TC: binary — is cell (x,y) where B's *next box delivered onto a target* lands?
 
-    At each timestep t, exactly one cell has label 1: the target cell where
-    B's next "box on target" push will land.  All other cells are 0.
-    If B never delivers a box, all cells remain 0.
+    Uses ``onto_target`` from the env push dict when present.  Legacy trajectories
+    that only store (x,y) from_xy fall back to labelling the next push destination
+    (any push), which is weaker.
 
-    Returns:
-        tc_labels: (T, G, G) int32  values in {0, 1}
+    At each timestep t, at most one cell is 1: that delivery landing cell.
     """
     T = len(partner_box_pushes)
     G = grid_size
@@ -128,72 +145,37 @@ def label_partner_tc(
 
     box_sets = [set(bp) for bp in box_positions_seq]
 
-    # Walk forward to find each "box on target" event caused by B
-    # (a box pushed by B that landed on a target, signalled by the box
-    #  disappearing from box_positions_seq because BOX_ON_TGT is tracked
-    #  separately in the env info... actually box_positions_seq includes both)
-    # Simpler: a box delivered to a target appears as a new BOX_ON_TGT.
-    # We identify this by checking which appeared positions overlap with target cells.
-    # Since we don't have target info here, we use the proxy: a pushed box that
-    # lands on a cell that was a TARGET (doesn't show in box_sets from the prior step
-    # AND appears in box_sets in the next step).
-    # In practice: box_positions_seq tracks ALL boxes (on floor + on tgt).
-    # A "delivery" is when a box appears in box_sets[t] that was in a TARGET cell.
-    # Without target cell info here, we use a simpler proxy:
-    #   - If a box pushed by B lands on a cell where the box count STAYS the same
-    #     but the position changes, it might be a delivery. This is hard to detect
-    #     without target info.
-    #
-    # Better approach: we record which push events cause a +reward delivery in
-    # the trajectory.  For simplicity here, we label TC=1 at the destination
-    # cell of each push event by B, scanning backward so each timestep t
-    # labels the NEXT such event.
-
-    # Find all "B push destinations" in order
-    push_destinations = []   # list of (t, dest_x, dest_y)
+    # (t, dest_x, dest_y) for deliveries we count toward TC
+    deliveries = []
     for t in range(1, T):
-        push_from = partner_box_pushes[t]
+        raw = partner_box_pushes[t]
+        push_from = _push_from_xy(raw)
         if push_from is None:
             continue
         ox, oy = push_from
         appeared = box_sets[t] - box_sets[t - 1]
-        if appeared:
-            new_pos = min(appeared, key=lambda p: abs(p[0]-ox) + abs(p[1]-oy))
-            push_destinations.append((t, new_pos[0], new_pos[1]))
+        if not appeared:
+            continue
+        new_pos = min(appeared, key=lambda p: abs(p[0] - ox) + abs(p[1] - oy))
+        onto = _push_onto_target(raw)
+        if onto is False:
+            continue
+        if onto is None:
+            # Old pickles: cannot distinguish delivery vs slide; keep prior behaviour.
+            deliveries.append((t, new_pos[0], new_pos[1]))
+        elif onto:
+            deliveries.append((t, new_pos[0], new_pos[1]))
 
-    # Backward scan: for each t, find the next push destination after t
-    ptr = len(push_destinations) - 1
-    for t in range(T - 1, -1, -1):
-        # Advance pointer to the latest push event with index > t
-        while ptr >= 0 and push_destinations[ptr][0] <= t:
-            ptr -= 1
-        if ptr >= 0:
-            # There is a future push at push_destinations[ptr]
-            # But we want the NEXT push after t, i.e., smallest index > t
-            # Forward scan is needed; store in a list sorted by t
-            pass
-
-    # Re-do as forward scan for clarity
-    next_dest = [None] * T   # next_dest[t] = (dx, dy) or None
-    last_dest = None
-    for t in range(T - 1, -1, -1):
-        for ev_t, dx, dy in reversed(push_destinations):
-            if ev_t > t:
-                last_dest = (dx, dy)
-                break
-        next_dest[t] = last_dest
-
-    # This naive double loop is O(T^2) but T <= 400 so it's fine
-    next_dest2 = [None] * T
+    next_dest = [None] * T
     for t in range(T):
-        for ev_t, dx, dy in push_destinations:
+        for ev_t, dx, dy in deliveries:
             if ev_t > t:
-                next_dest2[t] = (dx, dy)
+                next_dest[t] = (dx, dy)
                 break
 
     for t in range(T):
-        if next_dest2[t] is not None:
-            dx, dy = next_dest2[t]   # (col, row)
+        if next_dest[t] is not None:
+            dx, dy = next_dest[t]
             tc_labels[t, dy, dx] = 1
 
     return tc_labels
@@ -222,31 +204,35 @@ def count_valid_moves(
     agent_pos: Tuple[int, int],
 ) -> int:
     """
-    Estimate how many non-blocked moves agent B has at its current position.
+    Heuristic count of moves B could *try* from the egocentric obs (not full env sim).
 
-    Used for the ambiguity kill test: low count = "obvious" step,
-    high count = "ambiguous" step.
+    Treats a neighbor as blocked if it is a wall, or a box with no free push-through
+    cell (wall / OOB / second box in obs).  Still not identical to the env legal set
+    (e.g. partner occlusion), but stricter than wall-only.
 
-    Args:
-        obs:       (10, 8, 8) egocentric observation for agent B
-        agent_pos: (x, y) = (col, row) of agent B  (ch5/6 = self in B's obs)
-
-    Returns:
-        number of valid moves (0-4)
+    Used for the ambiguity kill test: low count ≈ "obvious", high ≈ "ambiguous".
     """
     from drc_sokoban.envs.boxoban_env import _DELTAS, GRID_SIZE as G
     x, y = agent_pos   # col, row
     r, c = y, x
 
-    # Wall channel = obs[0], self channel = obs[5]+obs[6]
+    def has_box(rr, cc):
+        if not (0 <= rr < G and 0 <= cc < G):
+            return False
+        return obs[2, rr, cc] + obs[3, rr, cc] > 0.5
+
     valid = 0
     for dr, dc in _DELTAS:
         nr, nc = r + dr, c + dc
         if not (0 <= nr < G and 0 <= nc < G):
             continue
-        # Check if destination is wall or already occupied by a box that can't be pushed
-        if obs[0, nr, nc] > 0.5:   # wall
+        if obs[0, nr, nc] > 0.5:
             continue
-        # Count as valid (simplified — doesn't check full push legality)
+        if has_box(nr, nc):
+            br, bc = nr + dr, nc + dc
+            if not (0 <= br < G and 0 <= bc < G):
+                continue
+            if obs[0, br, bc] > 0.5 or has_box(br, bc):
+                continue
         valid += 1
     return valid

@@ -2,6 +2,17 @@
 
 ---
 
+## 2026-03-31 — ToM / MA env probe fixes
+
+- `ma_boxoban_env`: push info dict `box_push_{a,b}` (`from_xy`, `to_xy`, `onto_target`); `box_pushed_by_*` = box source cell (was wrong: agent cell).
+- `tom_concept_labeler`: TB uses normalized push `from_xy`; TC uses `onto_target` when present, else legacy “any push destination”; `count_valid_moves` adds box push-through check (still heuristic).
+- `tom_train_probes`: episode-level train/val split (`GroupShuffleSplit`); `prepare_tom_dataset(..., return_episode_ids=True)`; `return_probes` + `evaluate_fitted_tom_probes` for v1→v2 transfer.
+- `tom_kill_tests`: cross-policy uses same fitted probes on v2 data; random-weights rollout samples actions (not argmax).
+- `run_tom_experiment`: one `reset` per env at collect start; caches `probe_models_v1.pkl` for transfer; JSON summary includes TB ambiguity metrics.
+- `generate_tom_report`: ambiguity gap cell avoids `:+` on missing values.
+
+---
+
 ## 2026-03-31 — `slurm_ma_tom.sh` default GPU: L40S
 
 - Default Slurm request is **`--gres=gpu:l40s:1`**, **50G** RAM, **8** CPUs (no H100 partition).

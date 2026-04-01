@@ -126,7 +126,8 @@ def main():
         amb = kt.get(amb_key)
         obv = kt.get(obv_key)
         gap = (float(amb) - float(obv)) if amb is not None and obv is not None else None
-        add(f"| {concept} | {fmt(amb)} | {fmt(obv)} | {fmt(gap):+} |")
+        gap_cell = f"{gap:+.3f}" if gap is not None else "N/A"
+        add(f"| {concept} | {fmt(amb)} | {fmt(obv)} | {gap_cell} |")
     add("")
     add("> Positive gap means the probe is MORE useful on ambiguous steps — exactly")
     add("> what we expect from genuine Theory of Mind.")

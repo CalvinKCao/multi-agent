@@ -50,7 +50,8 @@ Boxoban levels → MABoxobanEnv (8x8, 10-ch obs per agent, 2 agents)
 - Probes are 1×1 logistic regression classifiers — they see only the 32-dim
   activation at position (y, x) in the ConvLSTM h-tensor
 - Single-agent: CA (approach dir) and CB (push dir) — 5-class
-- Multi-agent: TA/TB (same semantics but for partner B) + TC (binary goal-target)
+- Multi-agent: TA/TB (partner B) + TC (next box-on-target landing; uses env `onto_target` on `box_push_b`)
+- ToM training: probe train/val split by **episode** (`GroupShuffleSplit`); cross-policy reuses **fitted** probes on v2
 - Kill tests validate the signal is genuine planning / ToM, not artefact
 
 ## Spatial Invariant (critical)

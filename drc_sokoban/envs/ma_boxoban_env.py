@@ -89,10 +89,11 @@ def _to_ma_obs(
 
 def _step_agent(grid, agent_pos, obstacle_pos, action):
     """
-    Attempt one move.  Returns (new_pos, reward, box_push_from_xy).
+    Attempt one move.  Returns (new_pos, reward, box_push_info).
 
-    box_push_from_xy is (col, row) = (x, y) of the box's old position if a
-    box was pushed, else None.  Used for ToM trajectory labelling.
+    box_push_info is None, or a dict:
+      from_xy (col, row), to_xy (col, row), onto_target (bool)
+    for the box that moved.  Used for ToM labelling (TB / TC).
     """
     dr, dc = _DELTAS[action]
     ar, ac = agent_pos
@@ -121,14 +122,20 @@ def _step_agent(grid, agent_pos, obstacle_pos, action):
         if dest == BOX_ON_TGT:
             reward -= 1.0
         grid[br, bc] = BOX_ON_TGT if box_dest == TARGET else BOX_ON_FLOOR
-        if box_dest == TARGET:
+        onto = box_dest == TARGET
+        if onto:
             reward += 1.0
         grid[nr, nc] = TARGET if dest == BOX_ON_TGT else FLOOR
-        box_push_from = (ac, ar)   # (x=col, y=row)
+        # Box stood on (nr, nc) before the push; lands on (br, bc).  (x, y) = (col, row).
+        box_push_info = {
+            "from_xy": (int(nc), int(nr)),
+            "to_xy":   (int(bc), int(br)),
+            "onto_target": bool(onto),
+        }
     else:
-        box_push_from = None
+        box_push_info = None
 
-    return (nr, nc), reward, box_push_from
+    return (nr, nc), reward, box_push_info
 
 
 # --------------------------------------------------------------------------- #
@@ -147,8 +154,10 @@ class MABoxobanEnv:
         solved          bool
         agent_a_pos     (x, y) = (col, row) after step
         agent_b_pos     (x, y) after step
-        box_pushed_by_a (x, y) old box cell if A pushed, else None
-        box_pushed_by_b (x, y) old box cell if B pushed, else None
+        box_push_a      None or dict {from_xy, to_xy, onto_target}
+        box_push_b      same for B
+        box_pushed_by_a (x, y) old box cell if A pushed — alias of from_xy
+        box_pushed_by_b (x, y) old box cell if B pushed — alias of from_xy
     """
 
     def __init__(
@@ -196,13 +205,13 @@ class MABoxobanEnv:
     def step(self, actions):
         action_a, action_b = int(actions[0]), int(actions[1])
 
-        new_a, rew_a, box_a = _step_agent(
+        new_a, rew_a, push_a = _step_agent(
             self._grid, self._agent_a, self._agent_b, action_a
         )
         self._agent_a    = new_a
         self._last_move_a = action_a
 
-        new_b, rew_b, box_b = _step_agent(
+        new_b, rew_b, push_b = _step_agent(
             self._grid, self._agent_b, self._agent_a, action_b
         )
         self._agent_b    = new_b
@@ -223,8 +232,10 @@ class MABoxobanEnv:
             "solved":          self._solved,
             "agent_a_pos":     (int(self._agent_a[1]), int(self._agent_a[0])),
             "agent_b_pos":     (int(self._agent_b[1]), int(self._agent_b[0])),
-            "box_pushed_by_a": box_a,
-            "box_pushed_by_b": box_b,
+            "box_push_a":      push_a,
+            "box_push_b":      push_b,
+            "box_pushed_by_a": push_a["from_xy"] if push_a else None,
+            "box_pushed_by_b": push_b["from_xy"] if push_b else None,
         }
         return self._make_obs(), reward, bool(done), info
 

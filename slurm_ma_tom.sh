@@ -216,6 +216,7 @@ elif [[ "$PHASE" == "train_v2" ]]; then
         --entropy-coef     0.05 \
         --wandb-project    drc-sokoban-ma-tom \
         --wandb-run-name   "ma-handicap-v2-10M" \
+        --partner-ckpt     "${SELFPLAY_CKPT}" \
         ${RESUME_FLAG}
 
 elif [[ "$PHASE" == "probe" ]]; then

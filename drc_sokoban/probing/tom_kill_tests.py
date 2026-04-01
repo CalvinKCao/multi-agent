@@ -3,33 +3,27 @@ Phase 4 kill tests for the ToM experiment.
 
 Test 1  Cross-Policy Generalization
     Train probes on trajectories where A plays with Partner v1 (self-play).
-    Evaluate those SAME probes on trajectories where A plays with Partner v2
-    (handicapped / high-entropy policy).
-    Pass criterion: F1 stays high.  This shows A's representation is
-    genuinely modeling "the other agent" not "what I would do from here."
+    Evaluate those SAME fitted probes on Partner-v2 trajectories (no retraining).
+    Pass criterion: F1 stays high relative to v1 val F1.
 
 Test 2  Ambiguity Test
     Split timesteps into "ambiguous" (partner has >= 3 valid moves) vs
     "obvious" (partner has <= 1 valid move).
     Compare ToM probe F1 on the two subsets.
-    ToM should shine on ambiguous steps where the behavior is less predictable
-    from the raw observation alone.
 
 Test 3  Random-Weights Baseline
-    Run an untrained MA DRC agent, collect hidden states, probe TA/TB/TC.
-    If probe F1 is low here but high for the trained agent, the signal comes
-    from learned representations, not architectural inductive bias.
+    Run an untrained MA DRC agent with stochastic action sampling, collect hidden
+    states, probe TA/TB/TC.  Low F1 here vs trained agent suggests a learned signal.
 """
 
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from sklearn.metrics import f1_score
-from sklearn.model_selection import train_test_split
-
-from drc_sokoban.probing.train_probes import _build_probe, split_episodes_by_index
 from drc_sokoban.probing.tom_train_probes import (
-    train_tom_probe, prepare_tom_dataset, train_all_tom_probes,
+    train_tom_probe,
+    prepare_tom_dataset,
+    train_all_tom_probes,
+    evaluate_fitted_tom_probes,
 )
 from drc_sokoban.probing.tom_concept_labeler import (
     label_tom_episode, count_valid_moves,
@@ -39,46 +33,45 @@ from drc_sokoban.probing.tom_concept_labeler import (
 # ── Test 1: Cross-Policy Generalization ─────────────────────────────────────
 
 def cross_policy_generalization_test(
-    probes_v1: Dict,
+    probe_results_v1: Dict[str, Any],
+    fitted_probes_v1: Dict[str, Any],
     episodes_v2: List[dict],
     ta_v2: List[np.ndarray],
     tb_v2: List[np.ndarray],
     tc_v2: List[np.ndarray],
     positions: Optional[List[Tuple[int, int]]] = None,
     verbose: bool = True,
-) -> Dict:
+) -> Dict[str, Any]:
     """
-    Evaluate probes trained on Partner-v1 trajectories against Partner-v2 data.
+    Evaluate probes *fitted* on Partner-v1 data against Partner-v2 timesteps.
 
-    probes_v1 is the output of train_all_tom_probes on v1 trajectories.
-    We re-train probes on v2 data and compare F1 to establish the reference,
-    then compute stability = F1_v2 / F1_v1.
-
-    Returns dict with F1 scores and stability ratios for each (concept, layer, tick).
+    ``probe_results_v1`` holds v1 validation F1 (mean per layer/tick).
+    ``fitted_probes_v1`` is the nested dict from ``train_all_tom_probes(..., return_probes=True)``.
     """
     if positions is None:
         positions = [(x, y) for y in range(8) for x in range(8)]
 
-    hs_v2, obs_v2, ta_v2_arr, tb_v2_arr, tc_v2_arr = prepare_tom_dataset(
+    hs_v2, _obs_v2, ta_v2_arr, tb_v2_arr, tc_v2_arr = prepare_tom_dataset(
         episodes_v2, ta_v2, tb_v2, tc_v2
     )
     num_ticks  = hs_v2.shape[1]
     num_layers = hs_v2.shape[2]
 
-    results_v2 = train_all_tom_probes(
-        hs_v2, obs_v2, ta_v2_arr, tb_v2_arr, tc_v2_arr,
+    results_v2 = evaluate_fitted_tom_probes(
+        fitted_probes_v1,
+        hs_v2, ta_v2_arr, tb_v2_arr, tc_v2_arr,
         num_ticks=num_ticks, num_layers=num_layers,
-        positions=positions, verbose=False,
+        positions=positions,
     )
 
     stability = {}
     for concept in ("TA", "TB", "TC"):
-        for key in probes_v1.get(concept, {}):
-            f1_v1 = probes_v1[concept].get(key, 0.0)
+        for key in probe_results_v1.get(concept, {}):
+            f1_v1 = probe_results_v1[concept].get(key, 0.0)
             f1_v2 = results_v2[concept].get(key, 0.0)
             stab  = f1_v2 / max(f1_v1, 1e-6)
             stability[f"{concept}_{key}"] = {
-                "f1_v1": f1_v1, "f1_v2": f1_v2, "stability": stab,
+                "f1_v1": f1_v1, "f1_v2_transfer": f1_v2, "stability": stab,
             }
 
     mean_stab_ta = np.mean([v["stability"] for k, v in stability.items() if k.startswith("TA")])
@@ -87,7 +80,7 @@ def cross_policy_generalization_test(
     if verbose:
         print("\n--- Cross-Policy Generalization Test ---")
         for k, v in sorted(stability.items()):
-            print(f"  {k}: v1={v['f1_v1']:.3f} v2={v['f1_v2']:.3f} "
+            print(f"  {k}: v1_val={v['f1_v1']:.3f} v2_transfer={v['f1_v2_transfer']:.3f} "
                   f"stability={v['stability']:.2f}")
         print(f"  Mean stability TA: {mean_stab_ta:.3f}  TB: {mean_stab_tb:.3f}")
         verdict = "PASS" if (mean_stab_ta + mean_stab_tb) / 2 >= 0.70 else "FAIL"
@@ -97,7 +90,7 @@ def cross_policy_generalization_test(
         "stability_per_key": stability,
         "mean_stability_ta": float(mean_stab_ta),
         "mean_stability_tb": float(mean_stab_tb),
-        "results_v2": results_v2,
+        "transfer_results_v2": results_v2,
     }
 
 
@@ -113,24 +106,23 @@ def ambiguity_test(
     obvious_threshold: int = 1,
     positions: Optional[List[Tuple[int, int]]] = None,
     verbose: bool = True,
-) -> Dict:
+) -> Dict[str, Any]:
     """
     Compare probe F1 on ambiguous vs obvious timesteps.
 
     A timestep is "ambiguous" if agent B has >= ambig_threshold valid moves.
     "Obvious" = <= obvious_threshold valid moves.
 
-    We train probes on all data, then evaluate them separately on each subset.
+    We train probes on each masked subset (independent fits for the diagnostic).
     """
     if positions is None:
         positions = [(x, y) for y in range(8) for x in range(8)]
 
-    # Build validity count for each timestep
     ambig_mask_list  = []
     obvious_mask_list = []
 
     for ep in episodes:
-        obs_b_seq   = ep.get("observations_b", ep.get("observations_a"))  # B's obs
+        obs_b_seq   = ep.get("observations_b", ep.get("observations_a"))
         agent_b_seq = ep.get("agent_b_positions", [])
         T = len(obs_b_seq)
         am = np.zeros(T, dtype=bool)
@@ -143,9 +135,7 @@ def ambiguity_test(
         ambig_mask_list.append(am)
         obvious_mask_list.append(ob)
 
-    # Pool hidden states and labels, tracking which timesteps are ambiguous
     hs_all   = np.concatenate([ep["hidden_states_a"] for ep in episodes], axis=0)
-    obs_all  = np.concatenate([ep["observations_a"] for ep in episodes],  axis=0)
     ta_all   = np.concatenate(ta_labels, axis=0)
     tb_all   = np.concatenate(tb_labels, axis=0)
     am_all   = np.concatenate(ambig_mask_list, axis=0)
@@ -155,11 +145,11 @@ def ambiguity_test(
         if mask.sum() < 20:
             return 0.0
         f1s = []
-        for x, y in positions[:16]:  # subset for speed
+        for x, y in positions[:16]:
             _, f1 = train_tom_probe(
                 hs_all[mask], concept_labels[mask],
                 x, y, layer=num_layers - 1, tick=num_ticks - 1,
-                binary=binary, n_seeds=1,
+                binary=binary, n_seeds=1, episode_ids=None,
             )
             f1s.append(f1)
         return float(np.mean(f1s))
@@ -196,12 +186,11 @@ def random_weights_baseline(
     n_episodes: int = 150,
     positions: Optional[List[Tuple[int, int]]] = None,
     verbose: bool = True,
-) -> Dict:
+) -> Dict[str, Any]:
     """
-    Collect hidden states from an untrained (random-weight) MA DRC agent and
-    train probes to check whether the architecture itself produces the signal.
+    Collect hidden states from an untrained MA DRC agent and train probes.
 
-    Returns F1 scores and delta vs trained agent for each (concept, layer, tick).
+    Policies sample actions stochastically so the walk explores more than argmax.
     """
     import torch
     from drc_sokoban.models.agent import DRCAgent
@@ -220,7 +209,7 @@ def random_weights_baseline(
         positions = [(x, y) for y in range(8) for x in range(8)]
 
     if verbose:
-        print(f"Collecting {n_episodes} eps from random-weight MA agent...")
+        print(f"Collecting {n_episodes} eps from random-weight MA agent (stochastic)...")
 
     n_batch = min(16, n_episodes)
     envs    = [env_factory() for _ in range(n_batch)]
@@ -252,10 +241,12 @@ def random_weights_baseline(
         hs_batch = np.stack([
             np.stack([all_ticks_A[t][l][0].cpu().numpy() for l in range(nl)], axis=1)
             for t in range(nt)
-        ], axis=1)  # (n_batch, ticks, layers, 32, 8, 8)
+        ], axis=1)
 
-        acts_A = torch.argmax(logits_A, dim=-1).cpu().numpy()
-        acts_B = torch.argmax(logits_B, dim=-1).cpu().numpy()
+        dist_A = torch.distributions.Categorical(logits=logits_A)
+        dist_B = torch.distributions.Categorical(logits=logits_B)
+        acts_A = dist_A.sample().cpu().numpy()
+        acts_B = dist_B.sample().cpu().numpy()
 
         obs_A_next_l, obs_B_next_l = [], []
         dones = np.zeros(n_batch, dtype=bool)
@@ -268,7 +259,7 @@ def random_weights_baseline(
             ep_bufs[i]["box_pos"].append(env.get_box_positions())
 
             (obs_a_n, obs_b_n), rew, done, info = env.step((int(acts_A[i]), int(acts_B[i])))
-            ep_bufs[i]["box_pushes_b"].append(info.get("box_pushed_by_b"))
+            ep_bufs[i]["box_pushes_b"].append(info.get("box_push_b"))
             ep_steps[i] += 1
             force_done = done or ep_steps[i] >= 200
             dones[i]   = force_done
@@ -285,7 +276,6 @@ def random_weights_baseline(
         for i in range(n_batch):
             if dones[i] and collected < n_episodes:
                 buf = ep_bufs[i]
-                T   = len(buf["hs_a"])
                 ep  = {
                     "hidden_states_a": np.array(buf["hs_a"]),
                     "observations_a":  np.array(buf["obs_a"]),
@@ -297,7 +287,9 @@ def random_weights_baseline(
                 ta, tb, tc = label_tom_episode(
                     buf["pos_b"], buf["box_pushes_b"], buf["box_pos"]
                 )
-                ep["ta"] = ta; ep["tb"] = tb; ep["tc"] = tc
+                ep["ta"] = ta
+                ep["tb"] = tb
+                ep["tc"] = tc
                 episodes.append(ep)
                 collected += 1
                 obs_A_all[i], obs_B_all[i] = envs[i].reset()
@@ -305,9 +297,11 @@ def random_weights_baseline(
                                "pos_b": [], "box_pushes_b": [], "box_pos": []}
                 ep_steps[i] = 0
                 for h, c in hidden_A:
-                    h[i] = 0.0; c[i] = 0.0
+                    h[i] = 0.0
+                    c[i] = 0.0
                 for h, c in hidden_B:
-                    h[i] = 0.0; c[i] = 0.0
+                    h[i] = 0.0
+                    c[i] = 0.0
 
     hs_r    = np.concatenate([ep["hidden_states_a"] for ep in episodes], axis=0)
     obs_r   = np.concatenate([ep["observations_a"]  for ep in episodes], axis=0)

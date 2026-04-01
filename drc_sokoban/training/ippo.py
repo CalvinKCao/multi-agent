@@ -116,11 +116,12 @@ class IPPOTrainer:
             self.agent.parameters(), lr=self.cfg["learning_rate"], eps=1e-5
         )
 
-        # Buffer uses 2*N slots: indices 0..N-1 = agent A, N..2N-1 = agent B
+        # Buffer uses 2*N slots for self-play, but only N slots if partner is fixed
         obs_shape = (self.cfg["obs_channels"], 8, 8)
+        train_envs = N if self._partner_fixed else 2 * N
         self.buffer = RolloutBuffer(
             n_steps         = self.cfg["rollout_steps"],
-            n_envs          = 2 * N,
+            n_envs          = train_envs,
             obs_shape       = obs_shape,
             num_layers      = self.cfg["num_layers"],
             hidden_channels = self.cfg["hidden_channels"],
@@ -191,28 +192,36 @@ class IPPOTrainer:
                 act_B_np = act_B.cpu().numpy()
                 obs_A_next, obs_B_next, reward, done, infos = self.env.step(act_A_np, act_B_np)
 
-                # Combine into 2N buffer entry
-                obs_both  = np.concatenate([obs_A, obs_B], axis=0)
-                act_both  = np.concatenate([act_A_np, act_B_np], axis=0)
-                lp_both   = np.concatenate(
-                    [lp_A.detach().cpu().numpy(), lp_B.detach().cpu().numpy()], axis=0
-                )
-                rew_both  = np.concatenate([reward, reward], axis=0)
-                done_both = np.concatenate([done, done], axis=0)
-                val_both  = np.concatenate(
-                    [val_A_t.squeeze(-1).detach().cpu().numpy(),
-                     val_B_t.squeeze(-1).detach().cpu().numpy()], axis=0
-                )
-                hidden_both_stored = [
-                    (torch.cat([h_a, h_b], dim=0),
-                     torch.cat([c_a, c_b], dim=0))
-                    for (h_a, c_a), (h_b, c_b) in zip(hidden_A, hidden_B)
-                ]
+                if self._partner_fixed:
+                    obs_stored  = obs_A
+                    act_stored  = act_A_np
+                    lp_stored   = lp_A.detach().cpu().numpy()
+                    rew_stored  = reward
+                    done_stored = done
+                    val_stored  = val_A_t.squeeze(-1).detach().cpu().numpy()
+                    hidden_stored = hidden_A
+                else:
+                    obs_stored  = np.concatenate([obs_A, obs_B], axis=0)
+                    act_stored  = np.concatenate([act_A_np, act_B_np], axis=0)
+                    lp_stored   = np.concatenate(
+                        [lp_A.detach().cpu().numpy(), lp_B.detach().cpu().numpy()], axis=0
+                    )
+                    rew_stored  = np.concatenate([reward, reward], axis=0)
+                    done_stored = np.concatenate([done, done], axis=0)
+                    val_stored  = np.concatenate(
+                        [val_A_t.squeeze(-1).detach().cpu().numpy(),
+                         val_B_t.squeeze(-1).detach().cpu().numpy()], axis=0
+                    )
+                    hidden_stored = [
+                        (torch.cat([h_a, h_b], dim=0),
+                         torch.cat([c_a, c_b], dim=0))
+                        for (h_a, c_a), (h_b, c_b) in zip(hidden_A, hidden_B)
+                    ]
 
                 self.buffer.add(
-                    obs=obs_both, action=act_both, log_prob=lp_both,
-                    reward=rew_both, done=done_both, value=val_both,
-                    hidden_states=hidden_both_stored,
+                    obs=obs_stored, action=act_stored, log_prob=lp_stored,
+                    reward=rew_stored, done=done_stored, value=val_stored,
+                    hidden_states=hidden_stored,
                 )
 
                 ep_rewards += reward
@@ -243,18 +252,20 @@ class IPPOTrainer:
                 obs_both_boot = torch.FloatTensor(
                     np.concatenate([obs_A, obs_B], axis=0)
                 ).to(self.device)
-                hidden_boot = [
-                    (torch.cat([h_a, h_b], dim=0), torch.cat([c_a, c_b], dim=0))
-                    for (h_a, c_a), (h_b, c_b) in zip(hidden_A, hidden_B)
-                ]
+                
                 _, val_boot, _ = self.agent(obs_both_boot[:N], hidden_A)
-                _, val_boot_B, _ = self._partner_agent(obs_both_boot[N:], hidden_B)
-                last_val = np.concatenate([
-                    val_boot.squeeze(-1).cpu().numpy(),
-                    val_boot_B.squeeze(-1).cpu().numpy(),
-                ], axis=0)
+                if self._partner_fixed:
+                    last_val = val_boot.squeeze(-1).cpu().numpy()
+                    last_done = np.zeros(N, dtype=bool)
+                else:
+                    _, val_boot_B, _ = self._partner_agent(obs_both_boot[N:], hidden_B)
+                    last_val = np.concatenate([
+                        val_boot.squeeze(-1).cpu().numpy(),
+                        val_boot_B.squeeze(-1).cpu().numpy(),
+                    ], axis=0)
+                    last_done = np.zeros(2 * N, dtype=bool)
 
-            self.buffer.compute_returns_and_advantages(last_val, np.zeros(2 * N, dtype=bool))
+            self.buffer.compute_returns_and_advantages(last_val, last_done)
 
             # ── PPO update ─────────────────────────────────────────────────────
             self.agent.train()

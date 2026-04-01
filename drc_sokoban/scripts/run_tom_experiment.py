@@ -37,7 +37,7 @@ from drc_sokoban.envs.ma_boxoban_env import MABoxobanEnv
 from drc_sokoban.models.agent import DRCAgent
 from drc_sokoban.probing.tom_concept_labeler import label_tom_episode
 from drc_sokoban.probing.tom_train_probes import (
-    train_all_tom_probes, prepare_tom_dataset, split_episodes_by_index,
+    train_all_tom_probes, prepare_tom_dataset,
 )
 from drc_sokoban.probing.tom_kill_tests import (
     cross_policy_generalization_test,
@@ -113,7 +113,7 @@ def collect_ma_episodes(
         hidden_states_a:   (T, num_ticks, num_layers, 32, 8, 8)
         actions_a, actions_b: (T,)
         agent_a_positions, agent_b_positions: list of (x,y) per step
-        box_pushes_b: list of (x,y) or None per step
+        box_pushes_b: list of None or push dict {from_xy, to_xy, onto_target} per step
         box_positions: list of [(x,y),...] per step
         rewards: (T,)
         solved: bool
@@ -126,9 +126,6 @@ def collect_ma_episodes(
     solve_n   = 0
 
     envs  = [env_factory() for _ in range(n_batch)]
-    ob_A  = np.stack([e.reset()[0] for e in envs], axis=0)
-    ob_B  = np.stack([e.reset()[1] for e in envs], axis=0)
-    # Re-reset to get both obs consistently
     pairs = [e.reset() for e in envs]
     ob_A  = np.stack([p[0] for p in pairs], axis=0)
     ob_B  = np.stack([p[1] for p in pairs], axis=0)
@@ -179,7 +176,7 @@ def collect_ma_episodes(
                 bufs[i]["box_pos"].append(env.get_box_positions())
 
                 (ob_a_n, ob_b_n), rew, done, info = env.step((int(act_A[i]), int(act_B[i])))
-                bufs[i]["box_b"].append(info.get("box_pushed_by_b"))
+                bufs[i]["box_b"].append(info.get("box_push_b"))
                 bufs[i]["rews"].append(rew)
                 ep_steps[i] += 1
                 force_done = done or ep_steps[i] >= max_steps
@@ -323,23 +320,56 @@ def main():
 
     # ── Phase 3: Train probes ──────────────────────────────────────────────────
     probe_cache = os.path.join(args.results_dir, "probe_results_v1.pkl")
+    models_cache = os.path.join(args.results_dir, "probe_models_v1.pkl")
+    need_fitted = (args.partner_v2_ckpt is not None) and (not args.skip_kill)
+    fitted_v1 = None
+
     if os.path.exists(probe_cache):
         print(f"Loading cached probes: {probe_cache}")
         with open(probe_cache, "rb") as f:
             probe_results_v1 = pickle.load(f)
     else:
-        hs_tr, obs_tr, ta_arr, tb_arr, tc_arr = prepare_tom_dataset(
-            train_eps_v1, ta_v1, tb_v1, tc_v1
+        hs_tr, obs_tr, ta_arr, tb_arr, tc_arr, ep_ids = prepare_tom_dataset(
+            train_eps_v1, ta_v1, tb_v1, tc_v1, return_episode_ids=True,
         )
         print(f"  Data shape: hs={hs_tr.shape}  obs={obs_tr.shape}")
-        print("\nTraining ToM probes...")
-        probe_results_v1 = train_all_tom_probes(
-            hs_tr, obs_tr, ta_arr, tb_arr, tc_arr,
-            num_ticks=num_ticks, num_layers=num_layers,
-            positions=positions, verbose=True,
-        )
+        print("\nTraining ToM probes (train/val split by episode)...")
+        if need_fitted:
+            probe_results_v1, fitted_v1 = train_all_tom_probes(
+                hs_tr, obs_tr, ta_arr, tb_arr, tc_arr,
+                num_ticks=num_ticks, num_layers=num_layers,
+                positions=positions, verbose=True,
+                episode_ids=ep_ids, return_probes=True,
+            )
+            with open(models_cache, "wb") as f:
+                pickle.dump(fitted_v1, f, protocol=4)
+        else:
+            probe_results_v1 = train_all_tom_probes(
+                hs_tr, obs_tr, ta_arr, tb_arr, tc_arr,
+                num_ticks=num_ticks, num_layers=num_layers,
+                positions=positions, verbose=True,
+                episode_ids=ep_ids, return_probes=False,
+            )
         with open(probe_cache, "wb") as f:
             pickle.dump(probe_results_v1, f, protocol=4)
+
+    if need_fitted and fitted_v1 is None:
+        if os.path.exists(models_cache):
+            with open(models_cache, "rb") as f:
+                fitted_v1 = pickle.load(f)
+        else:
+            hs_tr, obs_tr, ta_arr, tb_arr, tc_arr, ep_ids = prepare_tom_dataset(
+                train_eps_v1, ta_v1, tb_v1, tc_v1, return_episode_ids=True,
+            )
+            print("Fitting probe models for cross-policy test (no models cache)...")
+            _, fitted_v1 = train_all_tom_probes(
+                hs_tr, obs_tr, ta_arr, tb_arr, tc_arr,
+                num_ticks=num_ticks, num_layers=num_layers,
+                positions=positions, verbose=False,
+                episode_ids=ep_ids, return_probes=True,
+            )
+            with open(models_cache, "wb") as f:
+                pickle.dump(fitted_v1, f, protocol=4)
 
     print("\n--- ToM Probe Results (v1 partner) ---")
     for concept in ("TA", "TB", "TC"):
@@ -393,7 +423,7 @@ def main():
                 ta_v2.append(ta); tb_v2.append(tb); tc_v2.append(tc)
 
             cp_results = cross_policy_generalization_test(
-                probe_results_v1, train_eps_v2, ta_v2, tb_v2, tc_v2,
+                probe_results_v1, fitted_v1, train_eps_v2, ta_v2, tb_v2, tc_v2,
                 positions=positions, verbose=True,
             )
             kill_results["cross_policy"] = cp_results
@@ -412,8 +442,12 @@ def main():
         )
         kill_results["ambiguity"] = ambig_results
         if wrun:
-            wrun.log({"kill/ta_ambiguous": ambig_results["ta_ambiguous"],
-                      "kill/ta_obvious": ambig_results["ta_obvious"]})
+            wrun.log({
+                "kill/ta_ambiguous": ambig_results["ta_ambiguous"],
+                "kill/ta_obvious": ambig_results["ta_obvious"],
+                "kill/tb_ambiguous": ambig_results["tb_ambiguous"],
+                "kill/tb_obvious": ambig_results["tb_obvious"],
+            })
 
         # Test 3: Random-weights
         print("\n--- Kill Test 3: Random-Weights Baseline ---")
@@ -444,6 +478,8 @@ def main():
             "cross_policy_mean_stability_tb": kill_results.get("cross_policy", {}).get("mean_stability_tb"),
             "ambiguity_ta_ambiguous": kill_results.get("ambiguity", {}).get("ta_ambiguous"),
             "ambiguity_ta_obvious":   kill_results.get("ambiguity", {}).get("ta_obvious"),
+            "ambiguity_tb_ambiguous": kill_results.get("ambiguity", {}).get("tb_ambiguous"),
+            "ambiguity_tb_obvious":   kill_results.get("ambiguity", {}).get("tb_obvious"),
         },
     }
     summary_path = os.path.join(args.results_dir, "tom_summary.json")
