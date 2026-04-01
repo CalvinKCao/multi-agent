@@ -88,6 +88,14 @@ arch_log.md                 Append-only change history
 | TB | Partner B's next box-push direction at cell (x,y) | 5 |
 | TC | Is cell (x,y) B's next box-delivery target? | 2 (binary) |
 
+## W&B credentials (one place)
+
+- Copy `wandb.local.example` → `wandb.local` at the **repo root** (file is gitignored).
+- Python entrypoints call `load_wandb_local_env()` so `WANDB_API_KEY` / `WANDB_ENTITY` apply before `wandb.init`.
+- Slurm: `slurm_ma_tom.sh` sources `${PROJECT_ROOT}/wandb.local` after `cd` logic (same file).
+- Override file location: `export WANDB_LOCAL_FILE=/path/to/file`.
+- Shell exports still win over `wandb.local` (missing keys only are filled in).
+
 ## Gotchas
 
 - MA env stores ONLY {WALL,FLOOR,TARGET,BOX} in grid; agent positions are separate tuples.

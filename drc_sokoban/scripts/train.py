@@ -29,6 +29,7 @@ import torch
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from drc_sokoban.wandb_env import load_wandb_local_env
 from drc_sokoban.envs.make_env import make_env
 from drc_sokoban.training.ppo import PPOTrainer
 
@@ -77,6 +78,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    load_wandb_local_env()
 
     if args.smoke_test:
         args.num_envs     = max(args.num_envs, 4)

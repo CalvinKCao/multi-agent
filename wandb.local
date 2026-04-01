@@ -1,0 +1,11 @@
+# Copy to wandb.local in this directory (gitignored) and fill in your key.
+# Python scripts call load_wandb_local_env() automatically before wandb.init().
+#
+# On Slurm / bash you can also:
+#   set -a && source /path/to/repo/wandb.local && set +a
+#
+# Optional: point to a file elsewhere
+#   export WANDB_LOCAL_FILE=/path/to/my-wandb.local
+
+WANDB_API_KEY=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
+# WANDB_ENTITY=your-username-or-team

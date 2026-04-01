@@ -27,11 +27,21 @@
 #
 # Submit:
 #   sbatch --export=PHASE=train slurm_ma_tom.sh
+#
+# Wall time (short requests queue faster than multi-day asks):
+#   Slurm uses the #SBATCH --time below unless you override at submit time:
+#     sbatch --time=0-09:00:00 --export=PHASE=train slurm_ma_tom.sh
+#   Rough guide (L40S, 64 envs, Python env — tune after your first run):
+#     train    ~4–6 h typical for 50M steps → ask ~6–9 h (estimate + ~50%)
+#     train_v2 ~0.5–1.5 h for 10M → ask ~2–3 h
+#     probe    ~1–3 h collect + sklearn → ask ~4–5 h
+#     smoke    ~10 min → ask 0-00:30:00
+#   If a job hits TIMEOUT, resubmit the same PHASE; train/train_v2 resume from ckpt.
 # ============================================================
 
 #SBATCH --job-name=ma-tom
 #SBATCH --account=aip-boyuwang
-#SBATCH --time=3-00:00:00
+#SBATCH --time=0-08:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -46,6 +56,11 @@
 
 set -e
 export PYTHONUNBUFFERED=1
+
+# Weights & Biases — one file on the cluster (gitignored): copy wandb.local.example
+# to ${PROJECT_ROOT}/wandb.local after clone.  Python loads it automatically; we also
+# source it here so the key exists before any subprocess.  Do not commit wandb.local.
+# Alternative: wandb login on the login node (~/.netrc).  Offline: export WANDB_MODE=offline
 
 PHASE="${PHASE:-train}"
 echo "Phase: ${PHASE}"
@@ -62,6 +77,13 @@ else
     echo "  Clone on Killarney:  cd \"\${SCRATCH}\" && git clone <url> drc-sokoban-ma"
     echo "  (do not use cd \"\\\$SCRATCH/\\\$USER\" unless your site uses that layout)"
     exit 1
+fi
+
+if [[ -f "${PROJECT_ROOT}/wandb.local" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${PROJECT_ROOT}/wandb.local"
+    set +a
 fi
 
 if [[ -z "${PROJECT}" && -d "${HOME}/projects" ]]; then

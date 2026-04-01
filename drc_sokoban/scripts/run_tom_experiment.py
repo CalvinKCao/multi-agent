@@ -44,6 +44,7 @@ from drc_sokoban.probing.tom_kill_tests import (
     ambiguity_test,
     random_weights_baseline,
 )
+from drc_sokoban.wandb_env import load_wandb_local_env
 
 try:
     import wandb
@@ -281,12 +282,23 @@ def main():
     # ── WandB init ─────────────────────────────────────────────────────────────
     wrun = None
     if _WANDB:
-        wrun = wandb.init(
-            project = args.wandb_project,
-            name    = f"tom-probes-step{step//1_000_000}M",
-            config  = {"checkpoint": args.checkpoint, "n_train": n_train,
-                       "n_positions": n_pos, **cfg},
-        )
+        load_wandb_local_env()
+        try:
+            wrun = wandb.init(
+                project = args.wandb_project,
+                name    = f"tom-probes-step{step//1_000_000}M",
+                config  = {"checkpoint": args.checkpoint, "n_train": n_train,
+                           "n_positions": n_pos, **cfg},
+            )
+        except Exception as e:
+            print(
+                f"wandb.init failed ({e}); continuing without W&B.\n"
+                f"  Repo root: wandb.local.example -> wandb.local (gitignored)\n"
+                f"  Or:  wandb login  on login node\n"
+                f"  Or:  export WANDB_API_KEY=...  |  WANDB_MODE=offline",
+                flush=True,
+            )
+            wrun = None
 
     # ── Phase 3: Collect episodes ──────────────────────────────────────────────
     print("\n=== PHASE 3: COLLECTING PROBE DATA ===")

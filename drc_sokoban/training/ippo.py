@@ -359,6 +359,9 @@ class IPPOTrainer:
     def _maybe_init_wandb(self, save_path):
         if not _WANDB:
             return
+        from drc_sokoban.wandb_env import load_wandb_local_env
+
+        load_wandb_local_env()
         cfg = self.cfg
         run_id_file = f"{save_path}_wandb_run_id.txt" if save_path else None
         run_id = None
@@ -366,15 +369,27 @@ class IPPOTrainer:
             with open(run_id_file) as f:
                 run_id = f.read().strip()
 
-        self._wandb_run = wandb.init(
-            project = cfg["wandb_project"],
-            name    = cfg["wandb_run_name"],
-            id      = run_id,
-            resume  = "allow" if run_id else None,
-            config  = {k: v for k, v in cfg.items()
-                       if not k.startswith("wandb")},
-        )
-        if run_id_file and not run_id:
+        try:
+            self._wandb_run = wandb.init(
+                project = cfg["wandb_project"],
+                name    = cfg["wandb_run_name"],
+                id      = run_id,
+                resume  = "allow" if run_id else None,
+                config  = {k: v for k, v in cfg.items()
+                           if not k.startswith("wandb")},
+            )
+        except Exception as e:
+            print(
+                f"wandb.init failed ({e}); training continues without W&B.\n"
+                f"  Repo root: copy wandb.local.example -> wandb.local (gitignored)\n"
+                f"  Or:  wandb login   on the login node (~/.netrc)\n"
+                f"  Or before the job:   export WANDB_API_KEY=...   (never commit)\n"
+                f"  Or offline only:      export WANDB_MODE=offline",
+                flush=True,
+            )
+            self._wandb_run = None
+            return
+        if run_id_file and not run_id and self._wandb_run is not None:
             os.makedirs(os.path.dirname(run_id_file) or ".", exist_ok=True)
             with open(run_id_file, "w") as f:
                 f.write(self._wandb_run.id)
