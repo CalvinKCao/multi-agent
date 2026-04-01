@@ -34,6 +34,7 @@ import glob
 import random
 from typing import Dict, List, Optional, Tuple
 
+import drc_sokoban.envs.boxoban_env as _box_env
 from drc_sokoban.envs.boxoban_env import (
     _parse_level_file,
     WALL, FLOOR, TARGET, BOX_ON_FLOOR, BOX_ON_TGT,
@@ -325,10 +326,14 @@ class MABoxobanEnv:
         pos_a = (ar, ac)
 
         # --- Find Agent B ---
-        orig_b = np.argwhere((grid == AGENT_B) | (grid == AGENT_B_ON_TGT))
+        orig_b = np.argwhere(
+            (grid == _box_env.AGENT_B) | (grid == _box_env.AGENT_B_ON_TGT)
+        )
         if len(orig_b) > 0:
             br, bc = int(orig_b[0, 0]), int(orig_b[0, 1])
-            grid[br, bc] = TARGET if grid[br, bc] == AGENT_B_ON_TGT else FLOOR
+            grid[br, bc] = (
+                TARGET if grid[br, bc] == _box_env.AGENT_B_ON_TGT else FLOOR
+            )
             pos_b = (br, bc)
         else:
             free = [
@@ -350,8 +355,8 @@ class MABoxobanEnv:
         # Clear any remaining AGENT tiles just in case
         grid[grid == AGENT] = FLOOR
         grid[grid == AGENT_ON_TGT] = TARGET
-        grid[grid == AGENT_B] = FLOOR
-        grid[grid == AGENT_B_ON_TGT] = TARGET
+        grid[grid == _box_env.AGENT_B] = FLOOR
+        grid[grid == _box_env.AGENT_B_ON_TGT] = TARGET
 
         return grid, pos_a, pos_b
 

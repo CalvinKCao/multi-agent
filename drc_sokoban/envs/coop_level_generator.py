@@ -133,41 +133,49 @@ def _hardcoded_mutual_block() -> np.ndarray:
 
 def _hardcoded_handover() -> np.ndarray:
     """
-    Agent A has the box but no access to the target.
-    Agent B has the target but no access to the box.
-    Separated by a wall with a 1-tile handover gap.
+    Agent A (Left) must push boxes into a 1-tile gap.
+    Agent B (Right) must then take them to targets.
+    Agent A cannot enter Room B because it can't maneuver around the box in the gap.
     """
     g = _empty_border(6)
-    # Wall dividing the room with a gap at (2, 3)
+    # Wall at col 3 with gap at (2, 3)
     g[1, 3] = WALL
     g[3, 3] = WALL
     g[4, 3] = WALL
     
-    g[2, 1] = BOX_ON_FLOOR
-    g[2, 2] = BOX_ON_FLOOR
-    g[1, 4] = TARGET
-    g[2, 4] = TARGET
+    # Boxes in Room A
+    g[1, 1] = BOX_ON_FLOOR
+    g[3, 1] = BOX_ON_FLOOR
     
-    g[1, 1] = AGENT
-    g[4, 4] = AGENT_B
+    # Targets in Room B
+    g[1, 4] = TARGET
+    g[4, 4] = TARGET
+    
+    g[2, 1] = AGENT
+    g[2, 4] = AGENT_B
     return g
 
 
 def _hardcoded_intersection() -> np.ndarray:
     """
-    A central bottleneck tile that both agents must use.
-    If one agent leaves their box in the intersection, the other is blocked.
+    Two agents must cross paths at a single central bottleneck.
     """
     g = _empty_border(6)
-    # 4-room layout with center intersection
-    g[2, :] = WALL
-    g[:, 3] = WALL
-    g[2, 3] = FLOOR # The intersection
+    # 4-room structure
+    g[2, 1] = WALL
+    g[2, 2] = WALL
+    g[2, 4] = WALL
+    g[1, 3] = WALL
+    g[3, 3] = WALL
+    g[4, 3] = WALL
+    # Gap at (2, 3)
     
+    # Agent A: (1,1) -> (4,4)
     g[1, 1] = AGENT
     g[1, 2] = BOX_ON_FLOOR
     g[4, 4] = TARGET
     
+    # Agent B: (4,1) -> (1,4)
     g[4, 1] = AGENT_B
     g[4, 2] = BOX_ON_FLOOR
     g[1, 4] = TARGET
