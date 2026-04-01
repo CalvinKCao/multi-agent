@@ -82,17 +82,34 @@ def parse_args():
 
 def load_agent(ckpt_path, device):
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
-    cfg  = ckpt.get("cfg", {})
+    cfg = ckpt.get("cfg", {})
+    sd = ckpt["model_state"]
+    # Checkpoints before the Bush-style DRC upgrade: no skips / pool-inject / head MLP.
+    if "drc.pool_injects.0.fc.weight" in sd or "head_fc.0.weight" in sd:
+        skip, pool, concat = True, True, True
+    else:
+        skip, pool, concat = False, False, False
+    H = int(cfg.get("H", 8))
+    W = int(cfg.get("W", 8))
     agent = DRCAgent(
-        obs_channels    = cfg.get("obs_channels",    10),
-        hidden_channels = cfg.get("hidden_channels", 32),
-        num_layers      = cfg.get("num_layers",       2),
-        num_ticks       = cfg.get("num_ticks",        3),
+        obs_channels     = cfg.get("obs_channels", 10),
+        hidden_channels  = cfg.get("hidden_channels", 32),
+        num_layers       = cfg.get("num_layers", 2),
+        num_ticks        = cfg.get("num_ticks", 3),
+        H                = H,
+        W                = W,
+        skip_connections = cfg.get("skip_connections", skip),
+        pool_and_inject  = cfg.get("pool_and_inject", pool),
+        concat_encoder   = cfg.get("concat_encoder", concat),
     ).to(device)
-    agent.load_state_dict(ckpt["model_state"])
+    agent.load_state_dict(sd)
     agent.eval()
     step = ckpt.get("global_step", 0)
-    print(f"Loaded {ckpt_path} (step {step:,})")
+    pi = getattr(agent.drc, "pool_injects", None)
+    print(
+        f"Loaded {ckpt_path} (step {step:,})  "
+        f"skip={agent.drc.skip_connections} pool_inject={pi is not None} concat_enc={agent.concat_encoder}",
+    )
     return agent, cfg, step
 
 
