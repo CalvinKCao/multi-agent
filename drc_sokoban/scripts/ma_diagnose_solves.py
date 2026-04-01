@@ -18,7 +18,20 @@ Usage (Alliance / Killarney — use a real path, not literal "..."):
         --data-dir "${PROJECT}/${USER}/drc-sokoban-ma/data/boxoban_levels" \\
         --episodes 5000 --max-steps 400
 
-Or run interactively on a compute node / in the job venv after module load.
+If you see **Illegal instruction (core dumped)** on klogin: the venv's numpy
+(and often torch) wheels target compute-node CPUs; login nodes can lack those
+SIMD features. Do **not** run this on the login node — submit a short job:
+
+    sbatch --account=YOUR_CCDB_GROUP slurm_ma_diagnose_solves.sh
+
+Or one-shot:
+
+    salloc --account=YOUR_CCDB_GROUP --time=0:30:0 --cpus-per-task=4 --mem=8G \\
+           --partition=default
+    module load StdEnv/2023 python/3.11
+    cd /scratch/$USER/drc-sokoban-ma   # your repo path
+    source /project/6101823/$USER/drc-sokoban-ma/venv/bin/activate
+    python -m drc_sokoban.scripts.ma_diagnose_solves --data-dir ... --episodes 5000
 """
 
 import argparse
