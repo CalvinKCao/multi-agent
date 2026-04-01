@@ -94,19 +94,28 @@ def load_agent(ckpt_path, device):
     else:
         infer_skip = False
     infer_pool = "drc.pool_injects.0.fc.weight" in sd
-    # MLP readout (policy/value in_features 256) only if head_fc keys exist; do not infer from pool alone.
-    infer_concat = "head_fc.0.weight" in sd
-
     H = int(cfg.get("H", 8))
     W = int(cfg.get("W", 8))
+    hc = int(cfg.get("hidden_channels", 32))
+    flat_single = hc * H * W
+    # Newer ckpts: head_fc.0 -> 256-dim bottleneck; older: policy_head reads flat h (2048) directly.
+    infer_use_head_mlp = "head_fc.0.weight" in sd
+    if infer_use_head_mlp:
+        infer_concat = int(sd["head_fc.0.weight"].shape[1]) == 2 * flat_single
+    elif "policy_head.weight" in sd:
+        ph_in = int(sd["policy_head.weight"].shape[1])
+        infer_concat = ph_in == 2 * flat_single
+    else:
+        infer_concat = False
 
     skip = cfg.get("skip_connections", infer_skip)
     pool = cfg.get("pool_and_inject", infer_pool)
     concat = cfg.get("concat_encoder", infer_concat)
+    use_head_mlp = cfg.get("use_head_mlp", infer_use_head_mlp)
 
     agent = DRCAgent(
         obs_channels     = cfg.get("obs_channels", 10),
-        hidden_channels  = cfg.get("hidden_channels", 32),
+        hidden_channels  = hc,
         num_layers       = cfg.get("num_layers", 2),
         num_ticks        = cfg.get("num_ticks", 3),
         H                = H,
@@ -114,6 +123,7 @@ def load_agent(ckpt_path, device):
         skip_connections = skip,
         pool_and_inject  = pool,
         concat_encoder   = concat,
+        use_head_mlp     = use_head_mlp,
     ).to(device)
     agent.load_state_dict(sd)
     agent.eval()
@@ -121,7 +131,8 @@ def load_agent(ckpt_path, device):
     pi = getattr(agent.drc, "pool_injects", None)
     print(
         f"Loaded {ckpt_path} (step {step:,})  "
-        f"skip={agent.drc.skip_connections} pool_inject={pi is not None} concat_enc={agent.concat_encoder}",
+        f"skip={agent.drc.skip_connections} pool_inject={pi is not None} "
+        f"concat_enc={agent.concat_encoder} head_mlp={agent.use_head_mlp}",
     )
     return agent, cfg, step
 

@@ -18,6 +18,7 @@ from drc_sokoban.envs.boxoban_env import (
     TARGET,
     BOX_ON_FLOOR,
     AGENT,
+    AGENT_B,
 )
 from drc_sokoban.envs.level_generator import LevelGenerator, _grid_solvable_bfs
 
@@ -113,8 +114,6 @@ def _hardcoded_mutual_block() -> np.ndarray:
     A strict forced-collaboration topology.
     Two agents must start on opposite sides. Pushing a box down blocks the
     only connecting corridor, trapping the agent on that side.
-    A single agent cannot push both boxes, because pushing the first traps it,
-    preventing it from reaching the second box.
     """
     g = _empty_border(6)
     g[1, 2] = WALL
@@ -128,6 +127,71 @@ def _hardcoded_mutual_block() -> np.ndarray:
     g[4, 1] = TARGET
     g[4, 4] = TARGET
     g[1, 1] = AGENT
+    g[1, 4] = AGENT_B
+    return g
+
+
+def _hardcoded_handover() -> np.ndarray:
+    """
+    Agent A has the box but no access to the target.
+    Agent B has the target but no access to the box.
+    Separated by a wall with a 1-tile handover gap.
+    """
+    g = _empty_border(6)
+    # Wall dividing the room with a gap at (2, 3)
+    g[1, 3] = WALL
+    g[3, 3] = WALL
+    g[4, 3] = WALL
+    
+    g[2, 1] = BOX_ON_FLOOR
+    g[2, 2] = BOX_ON_FLOOR
+    g[1, 4] = TARGET
+    g[2, 4] = TARGET
+    
+    g[1, 1] = AGENT
+    g[4, 4] = AGENT_B
+    return g
+
+
+def _hardcoded_intersection() -> np.ndarray:
+    """
+    A central bottleneck tile that both agents must use.
+    If one agent leaves their box in the intersection, the other is blocked.
+    """
+    g = _empty_border(6)
+    # 4-room layout with center intersection
+    g[2, :] = WALL
+    g[:, 3] = WALL
+    g[2, 3] = FLOOR # The intersection
+    
+    g[1, 1] = AGENT
+    g[1, 2] = BOX_ON_FLOOR
+    g[4, 4] = TARGET
+    
+    g[4, 1] = AGENT_B
+    g[4, 2] = BOX_ON_FLOOR
+    g[1, 4] = TARGET
+    return g
+
+
+def _hardcoded_gatekeeper() -> np.ndarray:
+    """
+    Agent A's path is blocked by a box that only Agent B can clear.
+    """
+    g = _empty_border(6)
+    # Vertical corridor for Agent A
+    g[:, 2] = WALL
+    g[2, 2] = FLOOR # The gate
+    
+    g[1, 1] = AGENT
+    g[3, 1] = BOX_ON_FLOOR
+    g[4, 1] = TARGET
+    
+    g[2, 1] = BOX_ON_FLOOR # The "blocking" box
+    
+    g[1, 4] = AGENT_B
+    g[4, 4] = TARGET
+    g[3, 4] = BOX_ON_FLOOR
     return g
 
 
@@ -140,7 +204,14 @@ SCENARIO_BASES: Dict[str, Callable[[], np.ndarray]] = {
     "zigzag": _base_zigzag,
 }
 
-SCENARIOS: List[str] = list(SCENARIO_BASES.keys()) + ["mutual_block"]
+HARDCODED_SCENARIOS: Dict[str, Callable[[], np.ndarray]] = {
+    "mutual_block": _hardcoded_mutual_block,
+    "handover": _hardcoded_handover,
+    "intersection": _hardcoded_intersection,
+    "gatekeeper": _hardcoded_gatekeeper,
+}
+
+SCENARIOS: List[str] = list(SCENARIO_BASES.keys()) + list(HARDCODED_SCENARIOS.keys())
 
 
 def _try_place_and_solve(
@@ -225,8 +296,8 @@ class CoopLevelGenerator:
         k_rot = self.rng.randint(0, 4)
         flip_lr = self.rng.randint(0, 2) == 1
         
-        if name == "mutual_block":
-            g = _hardcoded_mutual_block()
+        if name in HARDCODED_SCENARIOS:
+            g = HARDCODED_SCENARIOS[name]()
             return _transform_layout(g, k_rot, flip_lr)
 
         base_fn = SCENARIO_BASES[name]

@@ -20,17 +20,20 @@ import random
 from typing import List, Optional, Tuple
 
 # ── Tile constants (shared with the rest of the project) ──────────────────────
-WALL         = 0
-FLOOR        = 1
-TARGET       = 2
-BOX_ON_FLOOR = 3
-BOX_ON_TGT   = 4
-AGENT        = 5
-AGENT_ON_TGT = 6
+WALL             = 0
+FLOOR            = 1
+TARGET           = 2
+BOX_ON_FLOOR     = 3
+BOX_ON_TGT       = 4
+AGENT            = 5
+AGENT_ON_TGT     = 6
+AGENT_B          = 7
+AGENT_B_ON_TGT   = 8
 
 TILE_TO_CH = {
     WALL: 0, FLOOR: 1, BOX_ON_FLOOR: 2,
     BOX_ON_TGT: 3, TARGET: 4, AGENT: 5, AGENT_ON_TGT: 6,
+    AGENT_B: 5, AGENT_B_ON_TGT: 6,
 }
 
 # Sokoban text character → tile constant
@@ -38,6 +41,7 @@ _CHAR = {
     "#": WALL, " ": FLOOR, ".": TARGET,
     "$": BOX_ON_FLOOR, "*": BOX_ON_TGT,
     "@": AGENT,        "+": AGENT_ON_TGT,
+    "!": AGENT_B,      "?": AGENT_B_ON_TGT,
 }
 
 # Action: 0=up 1=down 2=left 3=right  →  (row_delta, col_delta)

@@ -39,6 +39,7 @@ class DRCAgent(nn.Module):
         skip_connections: bool = True,
         pool_and_inject: bool = True,
         concat_encoder: bool = True,
+        use_head_mlp: bool = True,
     ):
         super().__init__()
         self.H = H
@@ -46,6 +47,7 @@ class DRCAgent(nn.Module):
         self.hidden_channels = hidden_channels
         self.num_actions = num_actions
         self.concat_encoder = concat_encoder
+        self.use_head_mlp = use_head_mlp
 
         self.encoder = nn.Sequential(
             nn.Conv2d(obs_channels, hidden_channels, kernel_size=3, padding=1),
@@ -61,17 +63,22 @@ class DRCAgent(nn.Module):
             pool_and_inject=pool_and_inject,
         )
 
-        # paper: cat(h^D, i_t) -> FC -> ReLU -> policy / value
+        # paper: cat(h^D, i_t) -> FC -> ReLU -> policy / value (when use_head_mlp)
         flat_dim = hidden_channels * H * W
         if concat_encoder:
             flat_dim *= 2
         head_hidden = 256
-        self.head_fc = nn.Sequential(
-            nn.Linear(flat_dim, head_hidden),
-            nn.ReLU(),
-        )
-        self.policy_head = nn.Linear(head_hidden, num_actions)
-        self.value_head = nn.Linear(head_hidden, 1)
+        if use_head_mlp:
+            self.head_fc = nn.Sequential(
+                nn.Linear(flat_dim, head_hidden),
+                nn.ReLU(),
+            )
+            self.policy_head = nn.Linear(head_hidden, num_actions)
+            self.value_head = nn.Linear(head_hidden, 1)
+        else:
+            self.head_fc = nn.Identity()
+            self.policy_head = nn.Linear(flat_dim, num_actions)
+            self.value_head = nn.Linear(flat_dim, 1)
 
         self._init_weights()
 

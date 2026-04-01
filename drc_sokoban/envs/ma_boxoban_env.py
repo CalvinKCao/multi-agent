@@ -308,36 +308,51 @@ class MABoxobanEnv:
     def _extract_agents(self, raw_grid):
         """
         Strip the single-agent tile from the level and place two agents.
-        Agent A gets the original position; B gets a random non-adjacent free cell.
+        Agent A gets the original position; B gets the AGENT_B position if found,
+        else a random non-adjacent free cell.
         """
         grid = raw_grid.copy()
         H, W = grid.shape
 
-        orig = np.argwhere((grid == AGENT) | (grid == AGENT_ON_TGT))
-        if len(orig) == 0:
+        # --- Find Agent A ---
+        orig_a = np.argwhere((grid == AGENT) | (grid == AGENT_ON_TGT))
+        if len(orig_a) == 0:
             candidates = np.argwhere(grid == FLOOR)
-            orig = candidates[:1] if len(candidates) else np.array([[1, 1]])
+            orig_a = candidates[:1] if len(candidates) else np.array([[1, 1]])
 
-        ar, ac = int(orig[0, 0]), int(orig[0, 1])
+        ar, ac = int(orig_a[0, 0]), int(orig_a[0, 1])
         grid[ar, ac] = TARGET if grid[ar, ac] == AGENT_ON_TGT else FLOOR
         pos_a = (ar, ac)
 
-        free = [
-            (r, c)
-            for r in range(H) for c in range(W)
-            if (r, c) != pos_a
-            and grid[r, c] in (FLOOR, TARGET)
-            and abs(r - ar) + abs(c - ac) > 1
-        ]
-        if not free:
+        # --- Find Agent B ---
+        orig_b = np.argwhere((grid == AGENT_B) | (grid == AGENT_B_ON_TGT))
+        if len(orig_b) > 0:
+            br, bc = int(orig_b[0, 0]), int(orig_b[0, 1])
+            grid[br, bc] = TARGET if grid[br, bc] == AGENT_B_ON_TGT else FLOOR
+            pos_b = (br, bc)
+        else:
             free = [
-                (r, c) for r in range(H) for c in range(W)
-                if (r, c) != pos_a and grid[r, c] in (FLOOR, TARGET)
+                (r, c)
+                for r in range(H) for c in range(W)
+                if (r, c) != pos_a
+                and grid[r, c] in (FLOOR, TARGET)
+                and abs(r - ar) + abs(c - ac) > 1
             ]
-        if not free:
-            free = [(1, 1)]
+            if not free:
+                free = [
+                    (r, c) for r in range(H) for c in range(W)
+                    if (r, c) != pos_a and grid[r, c] in (FLOOR, TARGET)
+                ]
+            if not free:
+                free = [(1, 1)]
+            pos_b = self.rng.choice(free)
 
-        pos_b = self.rng.choice(free)
+        # Clear any remaining AGENT tiles just in case
+        grid[grid == AGENT] = FLOOR
+        grid[grid == AGENT_ON_TGT] = TARGET
+        grid[grid == AGENT_B] = FLOOR
+        grid[grid == AGENT_B_ON_TGT] = TARGET
+
         return grid, pos_a, pos_b
 
     def _random_level(self):
