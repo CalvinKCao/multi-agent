@@ -19,6 +19,9 @@ Usage:
     python scripts/train.py \\
         --data-dir data/boxoban_levels \\
         --resume checkpoints/agent_10M.pt
+
+    # Killarney: 50M steps, 64 envs, checkpoints under \$PROJECT/\$USER/.../checkpoints/sa_agent*.pt
+    sbatch --account=<ccdb-group> slurm_sa_boxoban_50m.sh
 """
 
 import argparse

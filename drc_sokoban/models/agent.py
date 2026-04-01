@@ -17,15 +17,15 @@ from drc_sokoban.models.conv_lstm import DRCStack, LayerStates
 
 class DRCAgent(nn.Module):
     """
-    DRC agent matching the Bush et al. 2025 architecture.
+    DRC-style agent: encoder + repeated ConvLSTM stack + policy/value heads.
 
-    Hyperparameters (defaults matching paper):
-        obs_channels     = 7   (symbolic Sokoban: one-hot per tile type)
-        hidden_channels  = 32  (Gd in the paper)
-        num_layers       = 3   (D); use 2 for faster PoC
-        num_ticks        = 3   (N)
-        num_actions      = 4   (up / down / left / right)
-        H = W            = 8   (Boxoban grid size)
+    Spatial layout matches the paper (8×8, 32 ch, 3×3 same-padding), but this is a
+    *minimal* stack — not the full Guez/Bush DRC (no pool-and-inject, no bottom-up
+    / top-down skips, readout does not concat encoder with final h).  See
+    PAPER_ALIGNMENT.md vs arXiv:2504.01871 Appendix E.3.
+
+    Defaults: obs_channels=7, hidden_channels=32, num_layers=3, num_ticks=3,
+    num_actions=4 (use num_layers=2 for faster PoC).
     """
 
     def __init__(

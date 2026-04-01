@@ -36,6 +36,11 @@
 #   J2=$(sbatch --parsable --export=ALL,PHASE=train_v2 --dependency=afterok:${J1} slurm_ma_tom.sh)
 #   J3=$(sbatch --parsable --export=ALL,PHASE=probe    --dependency=afterok:${J2} slurm_ma_tom.sh)
 #
+# Train stopped early (no ma_selfplay_final.pt): use a milestone checkpoint for v2 + probe:
+#   SP=/project/6101823/$USER/drc-sokoban-ma/checkpoints/ma_selfplay_40M.pt
+#   J2=$(sbatch --parsable --export=ALL,PHASE=train_v2,SELFPLAY_CKPT=$SP slurm_ma_tom.sh)
+#   J3=$(sbatch --parsable --export=ALL,PHASE=probe,SELFPLAY_CKPT=$SP --dependency=afterok:$J2 slurm_ma_tom.sh)
+#
 # Wall time — #SBATCH --time below is a default for ad-hoc submits (train-sized).
 # Prefer ./submit_ma_tom_chain.sh: it sets a different --time per phase (estimate × 1.5).
 #
@@ -122,9 +127,16 @@ RES_DIR="${STORAGE_ROOT}/results"
 
 mkdir -p "${STORAGE_ROOT}" "${CKPT_DIR}" "${RES_DIR}"
 
+# Self-play weights for train_v2 + probe. Default: final checkpoint from Phase train.
+# If train timed out before writing ma_selfplay_final.pt, point at a milestone file:
+#   sbatch --export=ALL,PHASE=train_v2,SELFPLAY_CKPT=${CKPT_DIR}/ma_selfplay_40M.pt slurm_ma_tom.sh
+# (use the full path; CKPT_DIR here is only valid after STORAGE_ROOT is set — expand on the cluster)
+SELFPLAY_CKPT="${SELFPLAY_CKPT:-${CKPT_DIR}/ma_selfplay_final.pt}"
+
 echo "PROJECT_ROOT=${PROJECT_ROOT}"
 echo "STORAGE_ROOT=${STORAGE_ROOT}"
 echo "PROJECT=${PROJECT}"
+echo "SELFPLAY_CKPT=${SELFPLAY_CKPT}"
 
 # ============================================================
 # Environment setup
@@ -190,10 +202,9 @@ elif [[ "$PHASE" == "train_v2" ]]; then
     # Phase 1b: Handicapped partner (v2 condition)
     # Fine-tune from self-play checkpoint with 50% random actions for B.
     # ---------------------------------------------------------
-    SELFPLAY_CKPT="${CKPT_DIR}/ma_selfplay_final.pt"
     if [[ ! -f "$SELFPLAY_CKPT" ]]; then
         echo "ERROR: self-play checkpoint not found at ${SELFPLAY_CKPT}"
-        echo "Run Phase train first."
+        echo "Run Phase train first, or set SELFPLAY_CKPT to a milestone (e.g. ma_selfplay_40M.pt)."
         exit 1
     fi
 
@@ -223,11 +234,11 @@ elif [[ "$PHASE" == "probe" ]]; then
     # ---------------------------------------------------------
     # Phase 2: ToM probing pipeline
     # ---------------------------------------------------------
-    SELFPLAY_CKPT="${CKPT_DIR}/ma_selfplay_final.pt"
     HANDICAP_CKPT="${CKPT_DIR}/ma_handicap_final.pt"
 
     if [[ ! -f "$SELFPLAY_CKPT" ]]; then
-        echo "ERROR: ${SELFPLAY_CKPT} not found.  Run Phase train first."
+        echo "ERROR: ${SELFPLAY_CKPT} not found."
+        echo "Run Phase train first, or set SELFPLAY_CKPT (e.g. to ma_selfplay_40M.pt)."
         exit 1
     fi
 
