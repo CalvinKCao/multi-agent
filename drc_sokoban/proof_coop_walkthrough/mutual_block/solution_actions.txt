@@ -1,0 +1,2 @@
+   1  A:DOWN  B:DOWN  (1, 1)
+   2  A:DOWN  B:DOWN  (1, 1)

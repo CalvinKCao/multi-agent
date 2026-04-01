@@ -2,6 +2,20 @@
 
 ---
 
+## 2026-04-01 -- Cooperative 6x6 level generator
+
+- `envs/coop_level_generator.py`: `CoopLevelGenerator` + `make_coop_generator`;
+  six wall templates (`horizontal_divide`, `vertical_divide`, `l_corridor`,
+  `center_island`, `corner_chambers`, `zigzag`), random rotation/reflection,
+  random target/box/agent placement with `_grid_solvable_bfs` filter; last resort
+  `LevelGenerator` fallback for guaranteed solvable 6x6 / 2-box output.
+- `train_ma.py`: `--use-coop-generator`, `--coop-scenario` (optional); mutex with
+  `--use-generator`; forces grid 6 for env ctor.
+- `scripts/visualize_levels.py`: `--coop`, `--coop-scenario`.
+- `tests/test_coop_level_generator.py`: pytest coverage for invariants + MA env load.
+
+---
+
 ## 2026-04-01 -- LevelGenerator reverse-pull bugfix + BFS check
 
 - `_try_pull`: agent cell for a legal undo was `box + d`; correct forward geometry is

@@ -1,0 +1,8 @@
+scenario=l_corridor
+generator_seed=10072
+base_seed_arg=10072
+actions_1agent_shortest=8
+stride=3
+frames=4
+ma_agent_a_rowcol=(4, 3)
+ma_agent_b_rowcol=(4, 1)

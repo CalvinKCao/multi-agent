@@ -84,13 +84,26 @@ def load_agent(ckpt_path, device):
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     cfg = ckpt.get("cfg", {})
     sd = ckpt["model_state"]
-    # Checkpoints before the Bush-style DRC upgrade: no skips / pool-inject / head MLP.
-    if "drc.pool_injects.0.fc.weight" in sd or "head_fc.0.weight" in sd:
-        skip, pool, concat = True, True, True
+    # Infer layout from tensors (cfg may omit flags). Do not tie concat to pool_inject alone:
+    # old self-play ckpts can have skips/pool but still use flat 2048 -> policy (no head_fc).
+    g0 = sd.get("drc.cells.0.gates.weight")
+    if g0 is not None:
+        chin = int(g0.shape[1])
+        # Layer 0 gates: concat(x,h) -> 32+32=64 without skip; 32+32+32=96 with bottom-up+top-down skip.
+        infer_skip = chin == 96
     else:
-        skip, pool, concat = False, False, False
+        infer_skip = False
+    infer_pool = "drc.pool_injects.0.fc.weight" in sd
+    # MLP readout (policy/value in_features 256) only if head_fc keys exist; do not infer from pool alone.
+    infer_concat = "head_fc.0.weight" in sd
+
     H = int(cfg.get("H", 8))
     W = int(cfg.get("W", 8))
+
+    skip = cfg.get("skip_connections", infer_skip)
+    pool = cfg.get("pool_and_inject", infer_pool)
+    concat = cfg.get("concat_encoder", infer_concat)
+
     agent = DRCAgent(
         obs_channels     = cfg.get("obs_channels", 10),
         hidden_channels  = cfg.get("hidden_channels", 32),
@@ -98,9 +111,9 @@ def load_agent(ckpt_path, device):
         num_ticks        = cfg.get("num_ticks", 3),
         H                = H,
         W                = W,
-        skip_connections = cfg.get("skip_connections", skip),
-        pool_and_inject  = cfg.get("pool_and_inject", pool),
-        concat_encoder   = cfg.get("concat_encoder", concat),
+        skip_connections = skip,
+        pool_and_inject  = pool,
+        concat_encoder   = concat,
     ).to(device)
     agent.load_state_dict(sd)
     agent.eval()

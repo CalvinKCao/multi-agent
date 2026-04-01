@@ -1,0 +1,8 @@
+scenario=mutual_block
+generator_seed=10288
+base_seed_arg=10283
+actions_1agent_shortest=2
+stride=3
+frames=2
+ma_agent_a_rowcol=(1, 1)
+ma_agent_b_rowcol=(1, 4)

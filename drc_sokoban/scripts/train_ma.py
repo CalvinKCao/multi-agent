@@ -9,6 +9,10 @@ Usage:
     python -m drc_sokoban.scripts.train_ma --use-generator --grid-size 6 --n-boxes 2 \\
         --target-steps 5000000 --save-path checkpoints/ma_tiny
 
+    # Cooperative 6x6 templates (bottlenecks / room splits)
+    python -m drc_sokoban.scripts.train_ma --use-coop-generator \\
+        --target-steps 5000000 --save-path checkpoints/ma_coop
+
     # Smoke test
     python -m drc_sokoban.scripts.train_ma --smoke-test --no-subproc
 """
@@ -33,6 +37,19 @@ def parse_args():
 
     # Generator mode
     p.add_argument("--use-generator", action="store_true")
+    p.add_argument(
+        "--use-coop-generator",
+        action="store_true",
+        help="Cooperative 6x6 template generator (grid 6, 2 boxes); "
+        "mutually exclusive with --use-generator",
+    )
+    p.add_argument(
+        "--coop-scenario",
+        type=str,
+        default=None,
+        help="Fix coop template: horizontal_divide, vertical_divide, l_corridor, "
+        "center_island, corner_chambers, zigzag (default: mix)",
+    )
     p.add_argument("--grid-size", type=int, default=8)
     p.add_argument("--n-boxes", type=int, default=2)
     p.add_argument("--internal-walls", type=int, default=2)
@@ -85,25 +102,61 @@ def main():
         args.num_envs = 4
         args.target_steps = 100_000
         args.save_every = 100_000
-        if not args.use_generator and args.data_dir is None:
+        if (
+            not args.use_generator
+            and not args.use_coop_generator
+            and args.data_dir is None
+        ):
             args.use_generator = True
             args.grid_size = 6
         print("=== SMOKE TEST ===")
 
+    if args.use_generator and args.use_coop_generator:
+        print(
+            "ERROR: use only one of --use-generator and --use-coop-generator",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
+
     os.makedirs(os.path.dirname(args.save_path) or ".", exist_ok=True)
 
     level_gen = None
-    if args.use_generator:
+    grid_sz = args.grid_size
+    if args.use_coop_generator:
+        from drc_sokoban.envs.coop_level_generator import (
+            SCENARIOS,
+            make_coop_generator,
+        )
+        if args.coop_scenario is not None and args.coop_scenario not in SCENARIOS:
+            print(
+                f"ERROR: --coop-scenario must be one of {SCENARIOS}",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
+        grid_sz = 6
+        level_gen = make_coop_generator(
+            grid_size=6,
+            n_boxes=2,
+            seed=args.seed,
+            scenario=args.coop_scenario,
+        )
+    elif args.use_generator:
         from drc_sokoban.envs.level_generator import make_ma_generator
         level_gen = make_ma_generator(
             grid_size=args.grid_size, n_boxes=args.n_boxes,
             n_internal_walls=args.internal_walls, seed=args.seed,
         )
 
-    grid_sz = args.grid_size
-    print(f"Creating {args.num_envs} MA envs "
-          f"({'generator ' + str(grid_sz) + 'x' + str(grid_sz) if level_gen else 'dataset'})",
-          flush=True)
+    gen_label = "dataset"
+    if level_gen is not None:
+        gen_label = (
+            f"coop-generator {grid_sz}x{grid_sz}"
+            if args.use_coop_generator
+            else f"generator {grid_sz}x{grid_sz}"
+        )
+    print(f"Creating {args.num_envs} MA envs ({gen_label})", flush=True)
 
     env = make_ma_env(
         n_envs=args.num_envs,

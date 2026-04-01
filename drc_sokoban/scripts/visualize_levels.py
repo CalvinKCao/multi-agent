@@ -8,6 +8,9 @@ Usage:
     # Show 5 MA-style levels with internal walls
     python -m drc_sokoban.scripts.visualize_levels --grid-size 6 --n-boxes 2 --internal-walls 2 --count 5
 
+    # Cooperative 6x6 templates (MA-oriented)
+    python -m drc_sokoban.scripts.visualize_levels --coop --count 9 --save coop_levels.png
+
     # Visualize from the boxoban dataset
     python -m drc_sokoban.scripts.visualize_levels --data-dir data/boxoban_levels --count 3
 
@@ -88,6 +91,17 @@ def main():
     p.add_argument("--grid-size", type=int, default=6)
     p.add_argument("--n-boxes", type=int, default=1)
     p.add_argument("--internal-walls", type=int, default=0)
+    p.add_argument(
+        "--coop",
+        action="store_true",
+        help="Use cooperative 6x6 template generator (ignores grid-size/n-boxes/internal-walls)",
+    )
+    p.add_argument(
+        "--coop-scenario",
+        type=str,
+        default=None,
+        help="Optional coop template name (default: random mix across families)",
+    )
     p.add_argument("--count", type=int, default=5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--data-dir", type=str, default=None,
@@ -105,6 +119,23 @@ def main():
         for _ in range(args.count):
             env.reset()
             grids.append(env._grid.copy())
+    elif args.coop:
+        from drc_sokoban.envs.coop_level_generator import (
+            SCENARIOS,
+            CoopLevelGenerator,
+        )
+        if args.coop_scenario is not None and args.coop_scenario not in SCENARIOS:
+            print(
+                f"ERROR: --coop-scenario must be one of {SCENARIOS}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        gen = CoopLevelGenerator(
+            seed=args.seed,
+            scenario=args.coop_scenario,
+        )
+        for _ in range(args.count):
+            grids.append(gen())
     else:
         from drc_sokoban.envs.level_generator import LevelGenerator
         gen = LevelGenerator(

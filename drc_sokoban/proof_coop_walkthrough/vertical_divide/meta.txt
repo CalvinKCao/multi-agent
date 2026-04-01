@@ -1,0 +1,8 @@
+scenario=vertical_divide
+generator_seed=10583
+base_seed_arg=10583
+actions_1agent_shortest=4
+stride=3
+frames=3
+ma_agent_a_rowcol=(3, 3)
+ma_agent_b_rowcol=(1, 4)

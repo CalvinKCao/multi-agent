@@ -1,0 +1,8 @@
+scenario=center_island
+generator_seed=10372
+base_seed_arg=10372
+actions_1agent_shortest=19
+stride=3
+frames=8
+ma_agent_a_rowcol=(4, 3)
+ma_agent_b_rowcol=(2, 4)

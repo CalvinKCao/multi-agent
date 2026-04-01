@@ -1,0 +1,8 @@
+scenario=corner_chambers
+generator_seed=10582
+base_seed_arg=10582
+actions_1agent_shortest=10
+stride=3
+frames=5
+ma_agent_a_rowcol=(4, 4)
+ma_agent_b_rowcol=(1, 4)

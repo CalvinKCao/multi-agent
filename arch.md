@@ -43,6 +43,9 @@ Levels (or generator) -> MABoxobanEnv (HxW, 10-ch per agent, 2 agents)
 - `MABoxobanEnv`: 10 channels, agent positions stored separately, A resolves first
 - `LevelGenerator`: reverse-pull procedural generation, configurable grid size,
   n_boxes, internal walls; `make_sa_generator` and `make_ma_generator` helpers
+- `CoopLevelGenerator`: 6x6 template families (bottlenecks, room splits, L-corridors),
+  rot/flip + random placement, BFS-solvable; `make_coop_generator`; MA training via
+  `--use-coop-generator` (falls back to `LevelGenerator` if placement exhausts)
 - Both envs accept a `level_generator` callable or file-based dataset
 
 ### Training (`training/`)

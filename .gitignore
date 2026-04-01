@@ -34,3 +34,32 @@ results/
 # Large dumps / local docs (optional — remove line if you want to track)
 docs.alliancecan.ca_mediawiki-*/
 refs_emergent_planning/
+
+# Local scratch / disposable dirs
+jump/
+junk/
+
+# Images, video, and viz outputs (use `git add -f` if you need an exception)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.ico
+*.tif
+*.tiff
+*.mp4
+*.webm
+*.mkv
+*.avi
+
+visualizations/
+visualisation/
+plots/
+figures/
+renders/
+output_images/
+level_pngs/
+**/png/
+filmstrip.png

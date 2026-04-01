@@ -21,8 +21,18 @@ python -m drc_sokoban.scripts.train --data-dir data/boxoban_levels
 python -m drc_sokoban.scripts.train_ma --use-generator --grid-size 6 --n-boxes 2 \
     --internal-walls 2 --target-steps 10000000 --save-path checkpoints/ma_tiny
 
+# 2b. IPPO on cooperative 6x6 templates (bottlenecks / room splits / L-corridors)
+python -m drc_sokoban.scripts.train_ma --use-coop-generator \
+    --target-steps 10000000 --save-path checkpoints/ma_coop
+# Optional: single template family, e.g. --coop-scenario horizontal_divide
+
 # 3. Visualize generated levels
 python -m drc_sokoban.scripts.visualize_levels --grid-size 6 --n-boxes 2 --count 5
+python -m drc_sokoban.scripts.visualize_levels --coop --count 9
+
+# 3b. Proof pack: coop levels + ASCII/PNG every few steps along shortest solution
+python -m drc_sokoban.scripts.export_coop_walkthrough \\
+    --out-dir drc_sokoban/proof_coop_walkthrough --stride 3 --png
 
 # 4. ToM probing (after training)
 python -m drc_sokoban.scripts.run_tom_experiment \
@@ -40,6 +50,7 @@ drc_sokoban/
     ma_boxoban_env.py       Two-agent Boxoban env (10-ch egocentric obs)
     ma_make_env.py          SubprocMAVecEnv factory for MA env
     level_generator.py      Procedural level generation (reverse-pull, configurable size/boxes/walls)
+    coop_level_generator.py Cooperative 6x6 templates (6 families, rot/flip, BFS-solvable)
 
   models/
     conv_lstm.py            ConvLSTMCell + DRCStack + PoolAndInject (skip connections, pool-inject)
@@ -67,6 +78,7 @@ drc_sokoban/
     train.py                Single-agent training CLI (dataset or generator mode)
     train_ma.py             Multi-agent IPPO training CLI (dataset or generator mode)
     visualize_levels.py     ASCII + PNG visualization of generated levels
+    export_coop_walkthrough.py  Export coop levels + walkthrough.md / png / filmstrip (proof)
     run_full_experiment.py  Single-agent full probe pipeline
     run_probes.py           (secondary entry point)
     generate_report.py      Single-agent Markdown report
@@ -87,7 +99,8 @@ arch_log.md                 Append-only change history
 - **Training**: PPO with LR linear decay 4e-4->0, GAE lambda=0.97, step penalty -0.01, ep cap 120
 - **IPPO batch trick**: stack obs_A and obs_B into 2N-size forward pass
 - **Probes**: 1x1 logistic regression on 32-dim activation at each (y,x) cell
-- **Level generator**: reverse-pull generation for 6x6-10x10 grids, 1-4 boxes, optional walls
+- **Level generator**: reverse-pull for 6x6-10x10 grids, 1-4 boxes, optional walls
+- **Coop generator** (`--use-coop-generator`): 6x6 only, 2 boxes, six template families + transforms; falls back to reverse-pull if placement fails
 
 ## ToM Concepts
 

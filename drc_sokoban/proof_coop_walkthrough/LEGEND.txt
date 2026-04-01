@@ -1,0 +1,30 @@
+Why you see two different things
+---------------------------------
+1) initial_two_agent.png / initial_two_agent.txt  
+   This is the **real two-agent** training layout. The coop generator only
+   writes one @ in the file; MABoxobanEnv removes it and places **A** (blue) and
+   **B** (magenta) on open cells — same rule as IPPO. Open this first to see
+   both bodies on the map.
+
+2) filmstrip.png / walkthrough.md / ascii/step_*.png  
+   These replay a **single-agent** shortest solution (one @ moving alone).
+   That matches how we **guarantee solvability** in code (_grid_solvable_bfs).
+   It is **not** a joint plan for A and B (two-agent simultaneous control is a
+   different, much harder problem and is not exported here).
+
+Colors (single-agent frames — one agent as @)
+  Dark gray     wall
+  Light gray    floor
+  Orange/yellow target
+  Brown         box on floor
+  Green         box on target
+  Blue          agent
+
+Colors (initial_two_agent — two agents)
+  A = blue      (training “observer” for probing)
+  B = magenta   (partner)
+  Other tiles   same as above (walls, targets, boxes)
+
+ASCII (two-agent): A and B for agents; # . $ * as usual.
+
+ASCII (single-agent walkthrough): @ for the lone agent.
