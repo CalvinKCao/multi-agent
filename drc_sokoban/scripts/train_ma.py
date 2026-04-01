@@ -65,6 +65,13 @@ def parse_args():
     p.add_argument("--save-path",    type=str, default="checkpoints/ma_agent")
     p.add_argument("--save-every",   type=int, default=5_000_000)
     p.add_argument("--resume",       type=str, default=None)
+    p.add_argument(
+        "--additional-steps",
+        type=int,
+        default=None,
+        help="With --resume only: set training goal to global_step_from_ckpt + this "
+        "(use for handicap after a ~40M self-play ckpt while keeping --target-steps 10M).",
+    )
     p.add_argument("--partner-ckpt", type=str, default=None,
                    help="Fixed partner checkpoint (v2 condition).  None = self-play.")
     p.add_argument("--seed",         type=int, default=42)
@@ -130,9 +137,30 @@ def main():
 
     if args.resume:
         trainer.load(args.resume)
+        if args.additional_steps is not None:
+            base = trainer.global_step
+            trainer.cfg["target_steps"] = base + args.additional_steps
+            print(
+                f"Resume budget: train until global_step {trainer.cfg['target_steps']:,} "
+                f"(checkpoint {base:,} + {args.additional_steps:,} env-steps)",
+                flush=True,
+            )
+        elif trainer.global_step >= args.target_steps:
+            print(
+                "ERROR: checkpoint global_step ("
+                f"{trainer.global_step:,}) >= --target-steps ({args.target_steps:,}). "
+                "The training loop would not run.\n"
+                "  Fix: pass a larger --target-steps (absolute cap), or use "
+                "--additional-steps N with --resume so the goal becomes "
+                "checkpoint_step + N.",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
 
+    eff_target = trainer.cfg["target_steps"]
     print(f"Training on {trainer.device} | {args.num_envs} envs | "
-          f"{args.target_steps:,} target steps", flush=True)
+          f"{eff_target:,} target steps (global env-step counter)", flush=True)
     print(f"  Partner noise eps: {args.partner_noise_eps}  "
           f"(0 = full self-play)", flush=True)
 

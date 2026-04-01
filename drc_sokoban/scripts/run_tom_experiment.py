@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import gc
 import os
 import sys
 import json
@@ -308,6 +309,10 @@ def main():
         train_eps_v1 = collect_ma_episodes(agent_a, agent_b_v1, env_fn, n_train, device)
         with open(ep_cache, "wb") as f:
             pickle.dump(train_eps_v1, f, protocol=4)
+
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
 
     # ── Phase 3: Label ─────────────────────────────────────────────────────────
     print("\nLabelling ToM concepts...")

@@ -49,6 +49,7 @@
 #               ×1.5 slack → default chain limit 0-08:00:00 (raise if sacct shows TIMEOUT).
 #   • train_v2: 10M steps (~1/5 of train wall) → ~0.7–1.5 h; ×1.5 → default 0-02:00:00.
 #   • probe:    3k+1k episodes + sklearn probes → ~1.2–2.2 h; ×1.5 → default 0-03:30:00.
+#               Needs ~80G+ RAM (hidden-state tensors for 3k eps); default #SBATCH --mem=96G.
 #   • smoke:    ~5–15 min → sbatch --time=0-00:30:00 --export=PHASE=smoke …
 #
 # Override chain limits: TIME_TRAIN=0-12:00:00 TIME_PROBE=0-05:00:00 ./submit_ma_tom_chain.sh
@@ -62,7 +63,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=50G
+#SBATCH --mem=96G
 #SBATCH --gres=gpu:l40s:1
 # Logs: Slurm resolves paths at submit time. A *relative* --output goes to the
 # directory where you ran `sbatch`, NOT where this script later `cd`s — easy to
@@ -222,10 +223,14 @@ elif [[ "$PHASE" == "train_v2" ]]; then
         RESUME_FLAG="--resume ${SELFPLAY_CKPT}"
     fi
 
+    # --target-steps is an absolute cap on global_step (stored in ckpt). Self-play leaves
+    # ~50M; v2 adds ~10M → 60M. If your self-play ckpt is lower (e.g. 40M), you train
+    # more v2 steps until 60M — fine. For exactly +N from a custom ckpt, use train_ma.py
+    # --resume ... --additional-steps N (and a dummy --target-steps below that).
     python -u -m drc_sokoban.scripts.train_ma \
         --data-dir         "${DATA_DIR}" \
         --num-envs         64 \
-        --target-steps     10000000 \
+        --target-steps     60000000 \
         --save-every       2000000 \
         --save-path        "${CKPT_BASE}" \
         --partner-noise-eps 0.5 \
