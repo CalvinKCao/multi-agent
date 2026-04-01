@@ -25,18 +25,30 @@
 #   sbatch --partition=gpubase_h100_b4 --gpus-per-node=h100:1 \
 #          --cpus-per-task=16 --mem=64G --export=PHASE=train slurm_ma_tom.sh
 #
-# Submit:
+# Submit one phase:
 #   sbatch --export=PHASE=train slurm_ma_tom.sh
 #
-# Wall time (short requests queue faster than multi-day asks):
-#   Slurm uses the #SBATCH --time below unless you override at submit time:
-#     sbatch --time=0-09:00:00 --export=PHASE=train slurm_ma_tom.sh
-#   Rough guide (L40S, 64 envs, Python env — tune after your first run):
-#     train    ~4–6 h typical for 50M steps → ask ~6–9 h (estimate + ~50%)
-#     train_v2 ~0.5–1.5 h for 10M → ask ~2–3 h
-#     probe    ~1–3 h collect + sklearn → ask ~4–5 h
-#     smoke    ~10 min → ask 0-00:30:00
-#   If a job hits TIMEOUT, resubmit the same PHASE; train/train_v2 resume from ckpt.
+# Submit all three in order (each waits for the previous to succeed):
+#   ./submit_ma_tom_chain.sh
+#   ./submit_ma_tom_chain.sh --account=aip-boyuwang --partition=gpubase_h100_b4 --gpus-per-node=h100:1
+# Or by hand:
+#   J1=$(sbatch --parsable --export=ALL,PHASE=train slurm_ma_tom.sh)
+#   J2=$(sbatch --parsable --export=ALL,PHASE=train_v2 --dependency=afterok:${J1} slurm_ma_tom.sh)
+#   J3=$(sbatch --parsable --export=ALL,PHASE=probe    --dependency=afterok:${J2} slurm_ma_tom.sh)
+#
+# Wall time — #SBATCH --time below is a default for ad-hoc submits (train-sized).
+# Prefer ./submit_ma_tom_chain.sh: it sets a different --time per phase (estimate × 1.5).
+#
+# Budget math (L40S, 64 envs, Python MA env — env stepping is the bottleneck):
+#   • train:    50M steps ÷ (64×20) ≈ 39k PPO cycles. ~0.35–0.7 s/cycle → ~3.8–7.5 h;
+#               ×1.5 slack → default chain limit 0-08:00:00 (raise if sacct shows TIMEOUT).
+#   • train_v2: 10M steps (~1/5 of train wall) → ~0.7–1.5 h; ×1.5 → default 0-02:00:00.
+#   • probe:    3k+1k episodes + sklearn probes → ~1.2–2.2 h; ×1.5 → default 0-03:30:00.
+#   • smoke:    ~5–15 min → sbatch --time=0-00:30:00 --export=PHASE=smoke …
+#
+# Override chain limits: TIME_TRAIN=0-12:00:00 TIME_PROBE=0-05:00:00 ./submit_ma_tom_chain.sh
+# Single job:  sbatch --time=0-06:00:00 --export=PHASE=train_v2 slurm_ma_tom.sh
+# If you hit TIMEOUT, resubmit the same PHASE; train/train_v2 resume from ckpt.
 # ============================================================
 
 #SBATCH --job-name=ma-tom
