@@ -204,7 +204,12 @@ elif [[ "$PHASE" == "train_v2" ]]; then
     # ---------------------------------------------------------
     if [[ ! -f "$SELFPLAY_CKPT" ]]; then
         echo "ERROR: self-play checkpoint not found at ${SELFPLAY_CKPT}"
-        echo "Run Phase train first, or set SELFPLAY_CKPT to a milestone (e.g. ma_selfplay_40M.pt)."
+        echo "If you used --export=...,SELFPLAY_CKPT=\$SP, SP must be set in the same shell before sbatch;"
+        echo "otherwise the job gets an empty value and this script falls back to ma_selfplay_final.pt."
+        echo "Fix: pass the full path literally, e.g."
+        echo "  --export=ALL,PHASE=train_v2,SELFPLAY_CKPT=${CKPT_DIR}/ma_selfplay_40M.pt"
+        echo "Checkpoints in ${CKPT_DIR}:"
+        ls -la "${CKPT_DIR}"/ma_selfplay*.pt 2>/dev/null || echo "  (none matching ma_selfplay*.pt)"
         exit 1
     fi
 
@@ -238,7 +243,9 @@ elif [[ "$PHASE" == "probe" ]]; then
 
     if [[ ! -f "$SELFPLAY_CKPT" ]]; then
         echo "ERROR: ${SELFPLAY_CKPT} not found."
-        echo "Run Phase train first, or set SELFPLAY_CKPT (e.g. to ma_selfplay_40M.pt)."
+        echo "Same as train_v2: use a literal path in --export=...,SELFPLAY_CKPT=/project/.../ma_selfplay_40M.pt"
+        echo "Checkpoints in ${CKPT_DIR}:"
+        ls -la "${CKPT_DIR}"/ma_selfplay*.pt 2>/dev/null || echo "  (none matching ma_selfplay*.pt)"
         exit 1
     fi
 
