@@ -2,6 +2,46 @@
 
 ---
 
+## 2026-04-01 -- LevelGenerator reverse-pull bugfix + BFS check
+
+- `_try_pull`: agent cell for a legal undo was `box + d`; correct forward geometry is
+  agent at `box - 2*d` (two steps behind the box along the push direction). Wrong
+  geometry broke the solvability guarantee; some printed levels were unsolvable.
+- After placing the agent, try up to 80 random floor spawns and keep the first layout
+  that passes `_grid_solvable_bfs` (full-grid BFS using `_apply_action`, capped states).
+
+---
+
+## 2026-04-01 -- Paper-matching DRC + tiny experiment infrastructure
+
+### Architecture (models/)
+- `PoolAndInject` module: mean+max pool h -> linear -> broadcast-add back to h
+- `DRCStack`: bottom-up skip (encoder cat'd to all layers), top-down skip
+  (final h at tick n-1 feeds layer 0 at tick n), pool-and-inject per layer
+- `DRCAgent`: concat(h^D, encoder) -> 256-dim MLP -> policy/value heads
+- All new features default=True; set False for ablation vs old minimal stack
+- DRC(3,3) 32ch is now ~932K params (was ~180K without skips/MLP)
+
+### Environment (envs/)
+- `BoxobanEnv` + `MABoxobanEnv`: step_penalty (-0.01 default), configurable
+  episode cap (120+U[0,5]), configurable grid_size, `level_generator` callable
+- `LevelGenerator`: reverse-pull procedural generation, 5x5-10x10 grids,
+  1-4 boxes, optional internal walls, connectivity-checked
+- `make_sa_generator` / `make_ma_generator` convenience helpers
+
+### Training (training/)
+- LR linear decay 4e-4 -> 0 over target_steps (both PPO and IPPO)
+- GAE lambda 0.97 (was 0.95)
+- Enhanced logging: ep_length, timeout_rate, clip_frac, grad_norm, learning_rate
+- WandB logging expanded with all new metrics
+
+### Scripts
+- `train.py` / `train_ma.py`: --use-generator, --grid-size, --n-boxes,
+  --internal-walls, --step-penalty, --max-steps, --no-skip, --no-lr-decay, etc.
+- `visualize_levels.py`: ASCII + PNG rendering of generated or dataset levels
+
+---
+
 ## 2026-03-31 — ToM / MA env probe fixes
 
 - `ma_boxoban_env`: push info dict `box_push_{a,b}` (`from_xy`, `to_xy`, `onto_target`); `box_pushed_by_*` = box source cell (was wrong: agent cell).

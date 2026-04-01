@@ -134,9 +134,13 @@ def make_ma_env(
     data_dir: Optional[str] = None,
     split: str = "train",
     difficulty: str = "unfiltered",
-    max_steps: int = 400,
+    max_steps: int = 120,
+    max_steps_range: int = 5,
+    step_penalty: float = -0.01,
+    grid_size: int = 8,
     seed: Optional[int] = None,
     use_subproc: bool = True,
+    level_generator=None,
 ):
     """Create N parallel MA Boxoban envs."""
     from drc_sokoban.envs.ma_boxoban_env import MABoxobanEnv
@@ -145,8 +149,10 @@ def make_ma_env(
         def _fn():
             return MABoxobanEnv(
                 data_dir=data_dir, split=split, difficulty=difficulty,
-                max_steps=max_steps,
+                max_steps=max_steps, max_steps_range=max_steps_range,
+                step_penalty=step_penalty, grid_size=grid_size,
                 seed=(seed + i) if seed is not None else None,
+                level_generator=level_generator,
             )
         return _fn
 

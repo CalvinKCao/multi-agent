@@ -48,15 +48,21 @@ class IPPOTrainer:
 
     DEFAULT_CFG: Dict[str, Any] = dict(
         num_envs        = 64,
-        horizon         = 400,
+        horizon         = 120,
         obs_channels    = 10,
         num_actions     = 4,
         hidden_channels = 32,
-        num_layers      = 2,
+        num_layers      = 3,
         num_ticks       = 3,
-        learning_rate   = 3e-4,
+        H               = 8,
+        W               = 8,
+        skip_connections = True,
+        pool_and_inject  = True,
+        concat_encoder   = True,
+        learning_rate   = 4e-4,
+        lr_decay        = True,
         gamma           = 0.97,
-        gae_lambda      = 0.95,
+        gae_lambda      = 0.97,
         clip_eps        = 0.1,
         value_coef      = 0.5,
         entropy_coef    = 0.01,
@@ -66,7 +72,7 @@ class IPPOTrainer:
         rollout_steps   = 20,
         target_steps    = 50_000_000,
         save_every      = 5_000_000,
-        partner_noise_eps = 0.0,   # epsilon-greedy noise for partner (v2)
+        partner_noise_eps = 0.0,
         wandb_project   = "drc-sokoban-ma-tom",
         wandb_run_name  = "ippo-selfplay-50M",
     )
@@ -85,13 +91,19 @@ class IPPOTrainer:
             if device == "auto" else torch.device(device)
         )
 
-        N = self.cfg["num_envs"]
+        c = self.cfg
+        N = c["num_envs"]
         self.agent = DRCAgent(
-            obs_channels    = self.cfg["obs_channels"],
-            hidden_channels = self.cfg["hidden_channels"],
-            num_layers      = self.cfg["num_layers"],
-            num_ticks       = self.cfg["num_ticks"],
-            num_actions     = self.cfg["num_actions"],
+            obs_channels     = c["obs_channels"],
+            hidden_channels  = c["hidden_channels"],
+            num_layers       = c["num_layers"],
+            num_ticks        = c["num_ticks"],
+            num_actions      = c["num_actions"],
+            H                = c.get("H", 8),
+            W                = c.get("W", 8),
+            skip_connections = c.get("skip_connections", True),
+            pool_and_inject  = c.get("pool_and_inject", True),
+            concat_encoder   = c.get("concat_encoder", True),
         ).to(self.device)
 
         # Optional frozen partner policy (v2 handicapped condition)
@@ -99,11 +111,16 @@ class IPPOTrainer:
         if partner_ckpt is not None:
             ckpt = torch.load(partner_ckpt, map_location=self.device, weights_only=False)
             partner_agent = DRCAgent(
-                obs_channels    = self.cfg["obs_channels"],
-                hidden_channels = self.cfg["hidden_channels"],
-                num_layers      = self.cfg["num_layers"],
-                num_ticks       = self.cfg["num_ticks"],
-                num_actions     = self.cfg["num_actions"],
+                obs_channels     = c["obs_channels"],
+                hidden_channels  = c["hidden_channels"],
+                num_layers       = c["num_layers"],
+                num_ticks        = c["num_ticks"],
+                num_actions      = c["num_actions"],
+                H                = c.get("H", 8),
+                W                = c.get("W", 8),
+                skip_connections = c.get("skip_connections", True),
+                pool_and_inject  = c.get("pool_and_inject", True),
+                concat_encoder   = c.get("concat_encoder", True),
             ).to(self.device)
             partner_agent.load_state_dict(ckpt["model_state"])
             partner_agent.eval()
@@ -113,34 +130,49 @@ class IPPOTrainer:
             self._partner_agent = self.agent
 
         self.optimizer = optim.Adam(
-            self.agent.parameters(), lr=self.cfg["learning_rate"], eps=1e-5
+            self.agent.parameters(), lr=c["learning_rate"], eps=1e-5
         )
 
-        # Buffer uses 2*N slots for self-play, but only N slots if partner is fixed
-        obs_shape = (self.cfg["obs_channels"], 8, 8)
+        H_grid = c.get("H", 8)
+        W_grid = c.get("W", 8)
+        obs_shape = (c["obs_channels"], H_grid, W_grid)
         train_envs = N if self._partner_fixed else 2 * N
         self.buffer = RolloutBuffer(
-            n_steps         = self.cfg["rollout_steps"],
+            n_steps         = c["rollout_steps"],
             n_envs          = train_envs,
             obs_shape       = obs_shape,
-            num_layers      = self.cfg["num_layers"],
-            hidden_channels = self.cfg["hidden_channels"],
-            gamma           = self.cfg["gamma"],
-            gae_lambda      = self.cfg["gae_lambda"],
+            num_layers      = c["num_layers"],
+            hidden_channels = c["hidden_channels"],
+            H               = H_grid,
+            W               = W_grid,
+            gamma           = c["gamma"],
+            gae_lambda      = c["gae_lambda"],
             device          = self.device,
         )
 
         self.global_step = 0
         self._ep_rewards: list = []
         self._solve_tracker: list = []
+        self._ep_lengths: list = []
+        self._ep_timeouts: list = []
         self._wandb_run = None
 
-    # ── Training loop ──────────────────────────────────────────────────────────
+    def _get_lr(self):
+        if not self.cfg.get("lr_decay", True):
+            return self.cfg["learning_rate"]
+        frac = max(0.0, 1.0 - self.global_step / self.cfg["target_steps"])
+        return self.cfg["learning_rate"] * frac
+
+    def _set_lr(self):
+        lr = self._get_lr()
+        for pg in self.optimizer.param_groups:
+            pg["lr"] = lr
+        return lr
 
     def train(self, save_path: Optional[str] = None, log_every: int = 1_000_000):
         cfg = self.cfg
-        N   = cfg["num_envs"]
-        T   = cfg["rollout_steps"]
+        N = cfg["num_envs"]
+        T = cfg["rollout_steps"]
 
         self._maybe_init_wandb(save_path)
 
@@ -148,12 +180,13 @@ class IPPOTrainer:
         hidden_A = self.agent.init_hidden(N, self.device)
         hidden_B = self._partner_agent.init_hidden(N, self.device)
         ep_rewards = np.zeros(N, dtype=np.float32)
-        ep_solved  = np.zeros(N, dtype=bool)
+        ep_solved = np.zeros(N, dtype=bool)
         start_time = time.time()
-        last_log_step  = 0
+        last_log_step = 0
         last_save_step = 0
 
         while self.global_step < cfg["target_steps"]:
+            cur_lr = self._set_lr()
             self.agent.eval()
             if self._partner_fixed:
                 self._partner_agent.eval()
@@ -225,13 +258,15 @@ class IPPOTrainer:
                 )
 
                 ep_rewards += reward
-                ep_solved  |= np.array([info.get("solved", False) for info in infos])
+                ep_solved |= np.array([info.get("solved", False) for info in infos])
                 for i in range(N):
                     if done[i]:
                         self._ep_rewards.append(float(ep_rewards[i]))
                         self._solve_tracker.append(bool(ep_solved[i]))
+                        self._ep_lengths.append(infos[i].get("ep_length", 0))
+                        self._ep_timeouts.append(infos[i].get("timeout", False))
                         ep_rewards[i] = 0.0
-                        ep_solved[i]  = False
+                        ep_solved[i] = False
 
                 # Mask hidden states for finished episodes
                 dones_both = np.concatenate([done, done], axis=0)
@@ -272,26 +307,36 @@ class IPPOTrainer:
             losses = self._update()
             self.buffer.reset()
 
-            # ── Logging ────────────────────────────────────────────────────────
             if self.global_step - last_log_step >= log_every:
-                elapsed     = time.time() - start_time
-                sps         = self.global_step / elapsed
-                solve_rate  = np.mean(self._solve_tracker[-200:]) if self._solve_tracker else 0.0
-                mean_rew    = np.mean(self._ep_rewards[-200:]) if self._ep_rewards else 0.0
+                elapsed = time.time() - start_time
+                sps = self.global_step / elapsed
+                W = 200
+                solve = np.mean(self._solve_tracker[-W:]) if self._solve_tracker else 0.0
+                rew = np.mean(self._ep_rewards[-W:]) if self._ep_rewards else 0.0
+                ep_len = np.mean(self._ep_lengths[-W:]) if self._ep_lengths else 0.0
+                timeout = np.mean(self._ep_timeouts[-W:]) if self._ep_timeouts else 0.0
                 print(
                     f"Step {self.global_step/1e6:.1f}M | "
-                    f"Solve: {solve_rate:.3f} | Rew: {mean_rew:.2f} | "
-                    f"Ent: {losses['entropy']:.3f} | VF: {losses['value_loss']:.4f} | "
-                    f"SPS: {sps:.0f}",
+                    f"Solve {solve:.3f} | Rew {rew:.2f} | "
+                    f"Len {ep_len:.0f} | TO {timeout:.2f} | "
+                    f"Ent {losses['entropy']:.3f} | VF {losses['value_loss']:.4f} | "
+                    f"Clip {losses['clip_frac']:.3f} | "
+                    f"GNorm {losses['grad_norm']:.2f} | "
+                    f"LR {cur_lr:.1e} | SPS {sps:.0f}",
                     flush=True,
                 )
                 if self._wandb_run:
                     self._wandb_run.log({
-                        "train/solve_rate": solve_rate,
-                        "train/mean_reward": mean_rew,
+                        "train/solve_rate": solve,
+                        "train/mean_reward": rew,
+                        "train/ep_length": ep_len,
+                        "train/timeout_rate": timeout,
                         "train/entropy": losses["entropy"],
                         "train/value_loss": losses["value_loss"],
                         "train/policy_loss": losses["policy_loss"],
+                        "train/clip_frac": losses["clip_frac"],
+                        "train/grad_norm": losses["grad_norm"],
+                        "train/learning_rate": cur_lr,
                         "train/sps": sps,
                         "global_step": self.global_step,
                     })
@@ -315,7 +360,7 @@ class IPPOTrainer:
 
     def _update(self) -> dict:
         cfg = self.cfg
-        total_pg = total_vf = total_ent = 0.0
+        total_pg = total_vf = total_ent = total_clip = total_gnorm = 0.0
         n_batches = 0
 
         for _ in range(cfg["ppo_epochs"]):
@@ -329,16 +374,18 @@ class IPPOTrainer:
                 hidden     = DRCAgent.detach_hidden(batch["hidden_states"])
 
                 logits, value, _ = self.agent(obs, hidden)
-                dist    = Categorical(logits=logits)
-                new_lp  = dist.log_prob(actions)
+                dist = Categorical(logits=logits)
+                new_lp = dist.log_prob(actions)
                 entropy = dist.entropy().mean()
 
                 adv_norm = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                ratio    = torch.exp(new_lp - old_lp)
-                pg_loss  = torch.max(
+                ratio = torch.exp(new_lp - old_lp)
+                pg_loss = torch.max(
                     -adv_norm * ratio,
                     -adv_norm * torch.clamp(ratio, 1 - cfg["clip_eps"], 1 + cfg["clip_eps"])
                 ).mean()
+
+                clip_frac = ((ratio - 1.0).abs() > cfg["clip_eps"]).float().mean()
 
                 value = value.squeeze(-1)
                 v_clip = old_vals + torch.clamp(value - old_vals, -cfg["clip_eps"], cfg["clip_eps"])
@@ -350,19 +397,23 @@ class IPPOTrainer:
                 loss = pg_loss + cfg["value_coef"] * vf_loss - cfg["entropy_coef"] * entropy
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.agent.parameters(), cfg["max_grad_norm"])
+                gnorm = nn.utils.clip_grad_norm_(self.agent.parameters(), cfg["max_grad_norm"])
                 self.optimizer.step()
 
-                total_pg  += pg_loss.item()
-                total_vf  += vf_loss.item()
-                total_ent += entropy.item()
-                n_batches += 1
+                total_pg    += pg_loss.item()
+                total_vf    += vf_loss.item()
+                total_ent   += entropy.item()
+                total_clip  += clip_frac.item()
+                total_gnorm += gnorm.item() if hasattr(gnorm, 'item') else float(gnorm)
+                n_batches   += 1
 
         n = max(n_batches, 1)
         return {
             "policy_loss": total_pg / n,
             "value_loss":  total_vf / n,
             "entropy":     total_ent / n,
+            "clip_frac":   total_clip / n,
+            "grad_norm":   total_gnorm / n,
         }
 
     # ── WandB helpers ──────────────────────────────────────────────────────────

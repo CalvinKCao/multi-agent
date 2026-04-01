@@ -1,11 +1,11 @@
 """
-Full DRC agent for Sokoban / Boxoban.
+DRC agent for Sokoban / Boxoban.
 
-Architecture:
-    obs (7, 8, 8) → encoder → (32, 8, 8) → DRC stack (D layers, N ticks)
-                 → final h (last layer, last tick) → flatten → policy + value heads
+Architecture (matches Bush et al. 2025 / Guez et al. 2019 Appendix E.3):
+    obs -> encoder -> (C, H, W) -> DRC stack (skip connections + pool-and-inject)
+    -> cat(flatten(final_h), flatten(encoder)) -> MLP -> policy + value heads
 
-Spatial correspondence is preserved throughout: every Conv2d uses same-padding.
+Spatial correspondence preserved throughout: every Conv2d uses same-padding.
 """
 
 import torch
@@ -17,15 +17,14 @@ from drc_sokoban.models.conv_lstm import DRCStack, LayerStates
 
 class DRCAgent(nn.Module):
     """
-    DRC-style agent: encoder + repeated ConvLSTM stack + policy/value heads.
+    DRC agent: encoder + repeated ConvLSTM stack + policy/value heads.
 
-    Spatial layout matches the paper (8×8, 32 ch, 3×3 same-padding), but this is a
-    *minimal* stack — not the full Guez/Bush DRC (no pool-and-inject, no bottom-up
-    / top-down skips, readout does not concat encoder with final h).  See
-    PAPER_ALIGNMENT.md vs arXiv:2504.01871 Appendix E.3.
+    With default settings (skip_connections=True, pool_and_inject=True,
+    concat_encoder=True), matches Bush et al. 2025 Appendix E.3.
+    Set all three to False to recover the original minimal stack.
 
     Defaults: obs_channels=7, hidden_channels=32, num_layers=3, num_ticks=3,
-    num_actions=4 (use num_layers=2 for faster PoC).
+    num_actions=4.
     """
 
     def __init__(
@@ -37,31 +36,42 @@ class DRCAgent(nn.Module):
         num_actions: int = 4,
         H: int = 8,
         W: int = 8,
+        skip_connections: bool = True,
+        pool_and_inject: bool = True,
+        concat_encoder: bool = True,
     ):
         super().__init__()
         self.H = H
         self.W = W
         self.hidden_channels = hidden_channels
         self.num_actions = num_actions
+        self.concat_encoder = concat_encoder
 
-        # Encoder: (7, 8, 8) → (32, 8, 8) — NO striding, NO pooling
         self.encoder = nn.Sequential(
             nn.Conv2d(obs_channels, hidden_channels, kernel_size=3, padding=1),
             nn.ReLU(),
         )
 
-        # DRC recurrent stack
         self.drc = DRCStack(
             input_channels=hidden_channels,
             hidden_channels=hidden_channels,
             num_layers=num_layers,
             num_ticks=num_ticks,
+            skip_connections=skip_connections,
+            pool_and_inject=pool_and_inject,
         )
 
-        # Output heads: flatten final h then project
-        flat_dim = hidden_channels * H * W  # 32 * 8 * 8 = 2048
-        self.policy_head = nn.Linear(flat_dim, num_actions)
-        self.value_head = nn.Linear(flat_dim, 1)
+        # paper: cat(h^D, i_t) -> FC -> ReLU -> policy / value
+        flat_dim = hidden_channels * H * W
+        if concat_encoder:
+            flat_dim *= 2
+        head_hidden = 256
+        self.head_fc = nn.Sequential(
+            nn.Linear(flat_dim, head_hidden),
+            nn.ReLU(),
+        )
+        self.policy_head = nn.Linear(head_hidden, num_actions)
+        self.value_head = nn.Linear(head_hidden, 1)
 
         self._init_weights()
 
@@ -80,34 +90,18 @@ class DRCAgent(nn.Module):
         hidden_states: LayerStates,
         return_all_ticks: bool = False,
     ):
-        """
-        Args:
-            obs:              (B, 7, 8, 8) symbolic Sokoban observation
-            hidden_states:    list of D tuples [(h, c), ...] from previous step
-            return_all_ticks: if True return all intermediate tick states
-                              (needed for probe data collection, not training)
-
-        Returns (normal mode):
-            logits:            (B, num_actions)
-            value:             (B, 1)
-            new_hidden_states: list of D tuples for next step
-
-        Returns (return_all_ticks=True):
-            logits, value, new_hidden_states, all_tick_hiddens
-            all_tick_hiddens: list of N tick snapshots
-                              all_tick_hiddens[tick][layer] = (h, c)
-                              each h/c: (B, 32, 8, 8)
-        """
-        encoded = self.encoder(obs)  # (B, 32, 8, 8) — spatial dims preserved
-
+        encoded = self.encoder(obs)
         new_hidden_states, all_tick_hiddens = self.drc(encoded, hidden_states)
 
-        # Use h from the last tick, last layer
-        final_h = all_tick_hiddens[-1][-1][0]    # (B, 32, 8, 8)
-        flat = final_h.flatten(start_dim=1)       # (B, 2048)
+        final_h = all_tick_hiddens[-1][-1][0]
+        if self.concat_encoder:
+            flat = torch.cat([final_h.flatten(1), encoded.flatten(1)], dim=1)
+        else:
+            flat = final_h.flatten(start_dim=1)
 
-        logits = self.policy_head(flat)            # (B, num_actions)
-        value = self.value_head(flat)              # (B, 1)
+        features = self.head_fc(flat)
+        logits = self.policy_head(features)
+        value = self.value_head(features)
 
         if return_all_ticks:
             return logits, value, new_hidden_states, all_tick_hiddens

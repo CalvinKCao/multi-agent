@@ -31,7 +31,7 @@ from drc_sokoban.probing.concept_labeler import (
     _direction, NEVER, UP, DOWN, LEFT, RIGHT, N_CLASSES,
 )
 
-GRID_SIZE = 8
+GRID_SIZE = 8  # default; functions below accept grid_size param for flexibility
 
 
 def _push_from_xy(push) -> Optional[Tuple[int, int]]:
@@ -212,9 +212,10 @@ def count_valid_moves(
 
     Used for the ambiguity kill test: low count ≈ "obvious", high ≈ "ambiguous".
     """
-    from drc_sokoban.envs.boxoban_env import _DELTAS, GRID_SIZE as G
+    from drc_sokoban.envs.boxoban_env import _DELTAS
     x, y = agent_pos   # col, row
     r, c = y, x
+    G = obs.shape[1]   # grid height (works for any grid size)
 
     def has_box(rr, cc):
         if not (0 <= rr < G and 0 <= cc < G):

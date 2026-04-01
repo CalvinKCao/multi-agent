@@ -43,7 +43,7 @@ _CHAR = {
 # Action: 0=up 1=down 2=left 3=right  →  (row_delta, col_delta)
 _DELTAS = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
-GRID_SIZE    = 8   # playable interior (10×10 board minus 1-cell wall border)
+DEFAULT_GRID_SIZE = 8   # playable interior (10x10 board minus 1-cell wall border)
 OBS_CHANNELS = 7
 NUM_ACTIONS  = 4
 
@@ -89,8 +89,9 @@ def _parse_level_file(content: str) -> List[np.ndarray]:
 # ── Observation helper ─────────────────────────────────────────────────────────
 
 def _to_obs(grid: np.ndarray) -> np.ndarray:
-    """(8, 8) int32 → (7, 8, 8) float32 one-hot."""
-    obs = np.zeros((OBS_CHANNELS, GRID_SIZE, GRID_SIZE), dtype=np.float32)
+    """(H, W) int32 -> (7, H, W) float32 one-hot."""
+    H, W = grid.shape
+    obs = np.zeros((OBS_CHANNELS, H, W), dtype=np.float32)
     for tile, ch in TILE_TO_CH.items():
         obs[ch] = (grid == tile).astype(np.float32)
     return obs
@@ -104,11 +105,10 @@ def _apply_action(grid: np.ndarray, action: int) -> Tuple[float, bool]:
 
     Reward shaping (following Bush et al. 2025):
       +1.0   box pushed onto a target
-      -1.0   box pushed off a target (strong discouragement)
+      -1.0   box pushed off a target
       +10.0  all boxes on targets (level solved)
-
-    `won` is True only when ALL boxes are on targets.
     """
+    H, W = grid.shape
     dr, dc = _DELTAS[action]
     pos = np.argwhere((grid == AGENT) | (grid == AGENT_ON_TGT))
     if len(pos) == 0:
@@ -118,7 +118,7 @@ def _apply_action(grid: np.ndarray, action: int) -> Tuple[float, bool]:
     agent_was_on_tgt = bool(grid[ar, ac] == AGENT_ON_TGT)
     nr, nc = ar + dr, ac + dc
 
-    if not (0 <= nr < GRID_SIZE and 0 <= nc < GRID_SIZE):
+    if not (0 <= nr < H and 0 <= nc < W):
         return 0.0, False
 
     dest = int(grid[nr, nc])
@@ -128,28 +128,23 @@ def _apply_action(grid: np.ndarray, action: int) -> Tuple[float, bool]:
         return 0.0, False
 
     if dest in (BOX_ON_FLOOR, BOX_ON_TGT):
-        # Try to push the box
         br, bc = nr + dr, nc + dc
-        if not (0 <= br < GRID_SIZE and 0 <= bc < GRID_SIZE):
+        if not (0 <= br < H and 0 <= bc < W):
             return 0.0, False
         box_dest = int(grid[br, bc])
         if box_dest not in (FLOOR, TARGET):
-            return 0.0, False   # blocked — can't push
+            return 0.0, False
         if dest == BOX_ON_TGT:
-            reward -= 1.0       # box pushed OFF a target (penalty)
+            reward -= 1.0
         grid[br, bc] = BOX_ON_TGT if box_dest == TARGET else BOX_ON_FLOOR
         if box_dest == TARGET:
-            reward += 1.0       # box pushed ONTO a target
-        # Agent steps into box's old cell
+            reward += 1.0
         grid[nr, nc] = AGENT_ON_TGT if dest == BOX_ON_TGT else AGENT
     else:
-        # Simple move (floor or target)
         grid[nr, nc] = AGENT_ON_TGT if dest == TARGET else AGENT
 
-    # Restore vacated cell
     grid[ar, ac] = TARGET if agent_was_on_tgt else FLOOR
 
-    # Win check: all targets covered by boxes (not by agent)
     n_targets = int(np.sum(
         (grid == TARGET) | (grid == BOX_ON_TGT) | (grid == AGENT_ON_TGT)
     ))
@@ -167,10 +162,16 @@ class BoxobanEnv:
     """
     Boxoban / Sokoban environment for the DRC probing project.
 
-    obs  = env.reset()                          → (7, 8, 8) float32
-    obs, rew, done, info = env.step(action)     → action ∈ {0,1,2,3}
-    pos  = env.get_agent_pos()                  → (x, y) = (col, row)
-    boxes = env.get_box_positions()             → [(x,y), ...]
+    obs  = env.reset()                          -> (7, H, W) float32
+    obs, rew, done, info = env.step(action)     -> action in {0,1,2,3}
+
+    Args:
+        step_penalty:    per-step reward (paper uses -0.01; 0 disables)
+        max_steps:       episode cap (paper uses 120; old default 400)
+        max_steps_range: if >0, cap is uniform random [max_steps, max_steps+range]
+                         (paper: max_steps=115, max_steps_range=5 -> U[115,120])
+        grid_size:       playable interior dims (8 for standard boxoban)
+        level_generator: callable() -> np.ndarray grid; overrides file loading
     """
 
     def __init__(
@@ -178,42 +179,59 @@ class BoxobanEnv:
         data_dir: Optional[str] = None,
         split: str = "train",
         difficulty: str = "unfiltered",
-        max_steps: int = 400,
+        max_steps: int = 120,
+        max_steps_range: int = 5,
+        step_penalty: float = -0.01,
+        grid_size: int = DEFAULT_GRID_SIZE,
         seed: Optional[int] = None,
+        level_generator=None,
     ):
-        self.max_steps  = max_steps
-        self.rng        = random.Random(seed)
+        self.max_steps = max_steps
+        self.max_steps_range = max_steps_range
+        self.step_penalty = step_penalty
+        self.grid_size = grid_size
+        self.rng = random.Random(seed)
+        self._level_generator = level_generator
 
-        # Lazy load: discover file paths at init (directory scan only — fast)
         self._level_files: List[str] = []
-        self._file_cache: dict = {}   # path → List[np.ndarray]
+        self._file_cache: dict = {}
 
-        if data_dir is not None:
+        if data_dir is not None and level_generator is None:
             pat = os.path.join(data_dir, difficulty, split, "*.txt")
             self._level_files = sorted(glob.glob(pat))
             if not self._level_files:
                 self._level_files = sorted(glob.glob(os.path.join(data_dir, "*.txt")))
 
-        # Episode state
         self._grid: Optional[np.ndarray] = None
         self._step_count: int = 0
         self._solved: bool = False
+        self._ep_max_steps: int = max_steps
 
     # ── Public interface ───────────────────────────────────────────────────────
 
     def reset(self) -> np.ndarray:
         self._step_count = 0
-        self._solved     = False
-        self._grid       = self._load_random_level()
+        self._solved = False
+        if self.max_steps_range > 0:
+            self._ep_max_steps = self.rng.randint(
+                self.max_steps, self.max_steps + self.max_steps_range
+            )
+        else:
+            self._ep_max_steps = self.max_steps
+        self._grid = self._load_random_level()
         return _to_obs(self._grid)
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, dict]:
         self._step_count += 1
         reward, won = _apply_action(self._grid, action)
-        # Level is "solved" only when ALL boxes reach targets (won=True)
+        reward += self.step_penalty
         self._solved = self._solved or won
-        done = won or (self._step_count >= self.max_steps)
-        return _to_obs(self._grid), float(reward), bool(done), {"solved": self._solved}
+        done = won or (self._step_count >= self._ep_max_steps)
+        return _to_obs(self._grid), float(reward), bool(done), {
+            "solved": self._solved,
+            "ep_length": self._step_count,
+            "timeout": not won and self._step_count >= self._ep_max_steps,
+        }
 
     def get_agent_pos(self) -> Tuple[int, int]:
         """Return (col, row) = (x, y)."""
@@ -242,10 +260,12 @@ class BoxobanEnv:
     # ── Level loading ──────────────────────────────────────────────────────────
 
     def _load_random_level(self) -> np.ndarray:
+        if self._level_generator is not None:
+            return self._level_generator()
+
         if not self._level_files:
             return self._random_level()
 
-        # Pick a random file; parse it on first access, then cache
         path = self.rng.choice(self._level_files)
         if path not in self._file_cache:
             with open(path) as f:
@@ -257,24 +277,25 @@ class BoxobanEnv:
         return self.rng.choice(levels).copy()
 
     def _random_level(self) -> np.ndarray:
-        """Minimal random level (fallback when no dataset available)."""
-        g = np.full((GRID_SIZE, GRID_SIZE), FLOOR, dtype=np.int32)
+        """Minimal random level (fallback when no dataset or generator)."""
+        sz = self.grid_size
+        g = np.full((sz, sz), FLOOR, dtype=np.int32)
         g[0, :] = WALL; g[-1, :] = WALL
         g[:, 0] = WALL; g[:, -1] = WALL
-        interior = [(r, c) for r in range(1, 7) for c in range(1, 7)]
+        interior = [(r, c) for r in range(1, sz - 1) for c in range(1, sz - 1)]
         self.rng.shuffle(interior)
-        r0, c0 = interior[0]; r1, c1 = interior[1]; r2, c2 = interior[2]
-        g[r0, c0] = AGENT
-        g[r1, c1] = BOX_ON_FLOOR
-        g[r2, c2] = TARGET
+        g[interior[0][0], interior[0][1]] = AGENT
+        g[interior[1][0], interior[1][1]] = BOX_ON_FLOOR
+        g[interior[2][0], interior[2][1]] = TARGET
         return g
 
     # ── Gym-compatible stubs ───────────────────────────────────────────────────
 
     @property
     def observation_space(self):
+        sz = self.grid_size
         class _S:
-            shape = (OBS_CHANNELS, GRID_SIZE, GRID_SIZE)
+            shape = (OBS_CHANNELS, sz, sz)
             dtype = np.float32
         return _S()
 

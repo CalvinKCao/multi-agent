@@ -10,19 +10,24 @@ Based on Bush et al. (2025) — "Interpreting Emergent Planning in Model-Free RL
 ## Quick Start
 
 ```bash
-# 1. Single-agent baseline (existing, working)
-python -m drc_sokoban.scripts.train  --data-dir data/boxoban_levels --smoke-test
+# 1a. Single-agent on generated 6x6 levels (sanity check)
+python -m drc_sokoban.scripts.train --use-generator --grid-size 6 --n-boxes 1 \
+    --target-steps 5000000 --save-path checkpoints/sa_tiny
 
-# 2. Multi-agent IPPO training
-python -m drc_sokoban.scripts.train_ma  --data-dir data/boxoban_levels --smoke-test --no-subproc
+# 1b. Single-agent on standard 8x8 boxoban
+python -m drc_sokoban.scripts.train --data-dir data/boxoban_levels
 
-# 3. ToM probing (after training)
+# 2. Multi-agent IPPO on generated levels
+python -m drc_sokoban.scripts.train_ma --use-generator --grid-size 6 --n-boxes 2 \
+    --internal-walls 2 --target-steps 10000000 --save-path checkpoints/ma_tiny
+
+# 3. Visualize generated levels
+python -m drc_sokoban.scripts.visualize_levels --grid-size 6 --n-boxes 2 --count 5
+
+# 4. ToM probing (after training)
 python -m drc_sokoban.scripts.run_tom_experiment \
     --checkpoint checkpoints/ma_selfplay_final.pt \
     --data-dir data/boxoban_levels --quick
-
-# 4. Generate report
-python -m drc_sokoban.scripts.generate_tom_report --results-dir results/tom/
 ```
 
 ## File Tree
@@ -30,19 +35,20 @@ python -m drc_sokoban.scripts.generate_tom_report --results-dir results/tom/
 ```
 drc_sokoban/
   envs/
-    boxoban_env.py          Single-agent Boxoban env (7-ch obs, 8x8)
+    boxoban_env.py          Single-agent Boxoban env (configurable grid, step penalty, episode cap)
     make_env.py             SubprocVecEnv factory for single-agent
     ma_boxoban_env.py       Two-agent Boxoban env (10-ch egocentric obs)
     ma_make_env.py          SubprocMAVecEnv factory for MA env
+    level_generator.py      Procedural level generation (reverse-pull, configurable size/boxes/walls)
 
   models/
-    conv_lstm.py            ConvLSTMCell + DRCStack (all same-padding, no pooling)
-    agent.py                DRCAgent: encoder -> DRC -> policy+value heads
+    conv_lstm.py            ConvLSTMCell + DRCStack + PoolAndInject (skip connections, pool-inject)
+    agent.py                DRCAgent: encoder -> DRC -> cat(h,enc) -> MLP -> policy/value
 
   training/
     rollout_buffer.py       PPO rollout buffer (hidden state-aware)
-    ppo.py                  Single-agent PPO trainer
-    ippo.py                 IPPO trainer (parameter sharing, 2x batch trick)
+    ppo.py                  Single-agent PPO trainer (LR decay, enhanced logging)
+    ippo.py                 IPPO trainer (parameter sharing, LR decay, WandB logging)
 
   probing/
     concept_labeler.py      CA/CB labels for single-agent (approach dir / box push)
@@ -58,12 +64,12 @@ drc_sokoban/
     tom_kill_tests.py       ToM kill tests: cross-policy, ambiguity, random-net
 
   scripts/
-    train.py                Single-agent training CLI
+    train.py                Single-agent training CLI (dataset or generator mode)
+    train_ma.py             Multi-agent IPPO training CLI (dataset or generator mode)
+    visualize_levels.py     ASCII + PNG visualization of generated levels
     run_full_experiment.py  Single-agent full probe pipeline
     run_probes.py           (secondary entry point)
     generate_report.py      Single-agent Markdown report
-
-    train_ma.py             Multi-agent IPPO training CLI
     run_tom_experiment.py   Full ToM probing pipeline
     generate_tom_report.py  TOM_RESULTS.md generator
 
@@ -75,10 +81,13 @@ arch_log.md                 Append-only change history
 ## Key Architecture Facts
 
 - **Obs channels**: 7 (single-agent) / 10 (multi-agent, egocentric)
-- **Spatial invariant**: ALL Conv2d use kernel=3, padding=1 — H=W=8 is preserved
-- **DRC**: D=2 layers, N=3 ticks, 32 hidden channels (PoC defaults)
-- **IPPO batch trick**: stack obs_A and obs_B → single 2N-size forward pass
-- **Probes**: 1x1 logistic regression on 32-dim activation at each (x,y) cell
+- **Spatial invariant**: ALL Conv2d use kernel=3, padding=1 -- HxW preserved at any grid size
+- **DRC**: D=3 layers, N=3 ticks, 32ch (paper defaults); skip connections + pool-and-inject
+- **Readout**: cat(flatten(h^D), flatten(encoder)) -> 256-dim MLP -> policy/value
+- **Training**: PPO with LR linear decay 4e-4->0, GAE lambda=0.97, step penalty -0.01, ep cap 120
+- **IPPO batch trick**: stack obs_A and obs_B into 2N-size forward pass
+- **Probes**: 1x1 logistic regression on 32-dim activation at each (y,x) cell
+- **Level generator**: reverse-pull generation for 6x6-10x10 grids, 1-4 boxes, optional walls
 
 ## ToM Concepts
 

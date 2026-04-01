@@ -38,7 +38,7 @@ from drc_sokoban.envs.boxoban_env import (
     _parse_level_file,
     WALL, FLOOR, TARGET, BOX_ON_FLOOR, BOX_ON_TGT,
     AGENT, AGENT_ON_TGT,
-    _DELTAS, GRID_SIZE,
+    _DELTAS, DEFAULT_GRID_SIZE,
 )
 
 MA_OBS_CHANNELS = 10
@@ -56,7 +56,8 @@ def _to_ma_obs(
     partner_pos,
     partner_last_move,
 ):
-    obs = np.zeros((MA_OBS_CHANNELS, GRID_SIZE, GRID_SIZE), dtype=np.float32)
+    H, W = grid.shape
+    obs = np.zeros((MA_OBS_CHANNELS, H, W), dtype=np.float32)
 
     obs[0] = (grid == WALL).astype(np.float32)
     obs[2] = (grid == BOX_ON_FLOOR).astype(np.float32)
@@ -95,11 +96,12 @@ def _step_agent(grid, agent_pos, obstacle_pos, action):
       from_xy (col, row), to_xy (col, row), onto_target (bool)
     for the box that moved.  Used for ToM labelling (TB / TC).
     """
+    H, W = grid.shape
     dr, dc = _DELTAS[action]
     ar, ac = agent_pos
     nr, nc = ar + dr, ac + dc
 
-    if not (0 <= nr < GRID_SIZE and 0 <= nc < GRID_SIZE):
+    if not (0 <= nr < H and 0 <= nc < W):
         return agent_pos, 0.0, None
     if (nr, nc) == obstacle_pos:
         return agent_pos, 0.0, None
@@ -112,7 +114,7 @@ def _step_agent(grid, agent_pos, obstacle_pos, action):
 
     if dest in (BOX_ON_FLOOR, BOX_ON_TGT):
         br, bc = nr + dr, nc + dc
-        if not (0 <= br < GRID_SIZE and 0 <= bc < GRID_SIZE):
+        if not (0 <= br < H and 0 <= bc < W):
             return agent_pos, 0.0, None
         if (br, bc) == obstacle_pos:
             return agent_pos, 0.0, None
@@ -165,37 +167,52 @@ class MABoxobanEnv:
         data_dir=None,
         split="train",
         difficulty="unfiltered",
-        max_steps=400,
+        max_steps=120,
+        max_steps_range=5,
+        step_penalty=-0.01,
+        grid_size=DEFAULT_GRID_SIZE,
         seed=None,
+        level_generator=None,
     ):
         self.max_steps = max_steps
-        self.rng       = random.Random(seed)
+        self.max_steps_range = max_steps_range
+        self.step_penalty = step_penalty
+        self.grid_size = grid_size
+        self.rng = random.Random(seed)
+        self._level_generator = level_generator
 
         self._level_files = []
-        self._file_cache  = {}
+        self._file_cache = {}
 
-        if data_dir is not None:
+        if data_dir is not None and level_generator is None:
             pat = os.path.join(data_dir, difficulty, split, "*.txt")
             self._level_files = sorted(glob.glob(pat))
             if not self._level_files:
                 self._level_files = sorted(glob.glob(os.path.join(data_dir, "*.txt")))
 
-        self._grid         = None
-        self._agent_a      = None
-        self._agent_b      = None
-        self._last_move_a  = None
-        self._last_move_b  = None
-        self._n_boxes      = 0
-        self._step_count   = 0
-        self._solved       = False
+        self._grid = None
+        self._agent_a = None
+        self._agent_b = None
+        self._last_move_a = None
+        self._last_move_b = None
+        self._n_boxes = 0
+        self._step_count = 0
+        self._solved = False
+        self._ep_max_steps = max_steps
 
     # ----------------------------------------------------------------------- #
 
     def reset(self):
-        self._step_count  = 0
-        self._solved      = False
+        self._step_count = 0
+        self._solved = False
         self._last_move_a = None
         self._last_move_b = None
+        if self.max_steps_range > 0:
+            self._ep_max_steps = self.rng.randint(
+                self.max_steps, self.max_steps + self.max_steps_range
+            )
+        else:
+            self._ep_max_steps = self.max_steps
         self._grid, self._agent_a, self._agent_b = self._load_random_level()
         self._n_boxes = int(
             np.sum((self._grid == BOX_ON_FLOOR) | (self._grid == BOX_ON_TGT))
@@ -217,19 +234,21 @@ class MABoxobanEnv:
         self._agent_b    = new_b
         self._last_move_b = action_b
 
-        reward = float(rew_a + rew_b)
+        reward = float(rew_a + rew_b) + self.step_penalty
         self._step_count += 1
 
         n_on = int(np.sum(self._grid == BOX_ON_TGT))
-        won  = (n_on == self._n_boxes) and (self._n_boxes > 0)
+        won = (n_on == self._n_boxes) and (self._n_boxes > 0)
         if won:
             reward += 10.0
             self._solved = True
 
-        done = won or (self._step_count >= self.max_steps)
+        done = won or (self._step_count >= self._ep_max_steps)
 
         info = {
             "solved":          self._solved,
+            "ep_length":       self._step_count,
+            "timeout":         not won and self._step_count >= self._ep_max_steps,
             "agent_a_pos":     (int(self._agent_a[1]), int(self._agent_a[0])),
             "agent_b_pos":     (int(self._agent_b[1]), int(self._agent_b[0])),
             "box_push_a":      push_a,
@@ -269,6 +288,10 @@ class MABoxobanEnv:
         return obs_a, obs_b
 
     def _load_random_level(self):
+        if self._level_generator is not None:
+            raw_grid = self._level_generator()
+            return self._extract_agents(raw_grid)
+
         if self._level_files:
             path = self.rng.choice(self._level_files)
             if path not in self._file_cache:
@@ -288,6 +311,7 @@ class MABoxobanEnv:
         Agent A gets the original position; B gets a random non-adjacent free cell.
         """
         grid = raw_grid.copy()
+        H, W = grid.shape
 
         orig = np.argwhere((grid == AGENT) | (grid == AGENT_ON_TGT))
         if len(orig) == 0:
@@ -298,18 +322,16 @@ class MABoxobanEnv:
         grid[ar, ac] = TARGET if grid[ar, ac] == AGENT_ON_TGT else FLOOR
         pos_a = (ar, ac)
 
-        # Prefer cells not adjacent to A so B doesn't block A immediately
         free = [
             (r, c)
-            for r in range(GRID_SIZE)
-            for c in range(GRID_SIZE)
+            for r in range(H) for c in range(W)
             if (r, c) != pos_a
             and grid[r, c] in (FLOOR, TARGET)
             and abs(r - ar) + abs(c - ac) > 1
         ]
         if not free:
             free = [
-                (r, c) for r in range(GRID_SIZE) for c in range(GRID_SIZE)
+                (r, c) for r in range(H) for c in range(W)
                 if (r, c) != pos_a and grid[r, c] in (FLOOR, TARGET)
             ]
         if not free:
@@ -319,22 +341,23 @@ class MABoxobanEnv:
         return grid, pos_a, pos_b
 
     def _random_level(self):
-        g = np.full((GRID_SIZE, GRID_SIZE), FLOOR, dtype=np.int32)
+        sz = self.grid_size
+        g = np.full((sz, sz), FLOOR, dtype=np.int32)
         g[0, :] = WALL; g[-1, :] = WALL; g[:, 0] = WALL; g[:, -1] = WALL
-        interior = [(r, c) for r in range(1, 7) for c in range(1, 7)]
+        interior = [(r, c) for r in range(1, sz - 1) for c in range(1, sz - 1)]
         self.rng.shuffle(interior)
-        r0, c0 = interior[0]; r1, c1 = interior[1]
-        r2, c2 = interior[2]; r3, c3 = interior[3]
-        g[r0, c0] = AGENT
-        g[r1, c1] = BOX_ON_FLOOR
-        g[r2, c2] = TARGET
-        g[r3, c3] = BOX_ON_FLOOR
+        g[interior[0][0], interior[0][1]] = AGENT
+        g[interior[1][0], interior[1][1]] = BOX_ON_FLOOR
+        g[interior[2][0], interior[2][1]] = TARGET
+        if len(interior) > 3:
+            g[interior[3][0], interior[3][1]] = BOX_ON_FLOOR
         return g
 
     @property
     def observation_space(self):
+        sz = self.grid_size
         class _S:
-            shape = (MA_OBS_CHANNELS, GRID_SIZE, GRID_SIZE)
+            shape = (MA_OBS_CHANNELS, sz, sz)
             dtype = np.float32
         return _S()
 

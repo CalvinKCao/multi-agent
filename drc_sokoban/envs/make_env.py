@@ -165,25 +165,15 @@ def make_env(
     data_dir: Optional[str] = None,
     split: str = "train",
     difficulty: str = "unfiltered",
-    max_steps: int = 400,
+    max_steps: int = 120,
+    max_steps_range: int = 5,
+    step_penalty: float = -0.01,
+    grid_size: int = 8,
     seed: Optional[int] = None,
     use_subproc: bool = True,
-) -> SubprocVecEnv:
-    """
-    Create N parallel Boxoban environments.
-
-    Args:
-        n_envs:      Number of parallel environments.
-        data_dir:    Path to the boxoban-levels dataset root.
-        split:       "train" or "valid".
-        difficulty:  "unfiltered" (Bush et al.) or "medium".
-        max_steps:   Episode horizon (400 per Bush et al.).
-        seed:        Base random seed; each env gets seed+i.
-        use_subproc: Use SubprocVecEnv (True) or DummyVecEnv (False).
-
-    Returns:
-        A vectorised environment with n_envs parallel instances.
-    """
+    level_generator=None,
+):
+    """Create N parallel Boxoban environments."""
     from drc_sokoban.envs.boxoban_env import BoxobanEnv
 
     def make_single(i):
@@ -193,11 +183,14 @@ def make_env(
                 split=split,
                 difficulty=difficulty,
                 max_steps=max_steps,
+                max_steps_range=max_steps_range,
+                step_penalty=step_penalty,
+                grid_size=grid_size,
                 seed=(seed + i) if seed is not None else None,
+                level_generator=level_generator,
             )
         return _fn
 
     env_fns = [make_single(i) for i in range(n_envs)]
-
     VecEnvCls = SubprocVecEnv if use_subproc else DummyVecEnv
     return VecEnvCls(env_fns)
