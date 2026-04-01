@@ -20,16 +20,23 @@ Usage (Alliance / Killarney — use a real path, not literal "..."):
 
 If you see **Illegal instruction (core dumped)** on klogin: the venv's numpy
 (and often torch) wheels target compute-node CPUs; login nodes can lack those
-SIMD features. Do **not** run this on the login node — submit a short job:
+SIMD features. Do **not** run this on the login node.
 
-    sbatch --account=YOUR_CCDB_GROUP slurm_ma_diagnose_solves.sh
+**Do not** paste the literal string ``YOUR_CCDB_GROUP`` — use your CCDB Group Name
+(e.g. ``aip-boyuwang``). If ``salloc`` fails, do **not** run ``python`` next on
+klogin; you will still get SIGILL.
 
-Or one-shot:
+Submit a short job (recommended):
 
-    salloc --account=YOUR_CCDB_GROUP --time=0:30:0 --cpus-per-task=4 --mem=8G \\
+    sbatch --account=<your-ccdb-group> slurm_ma_diagnose_solves.sh
+    tail -f ma-diagnose-*.out
+
+Or interactive (only run module/python **after** the prompt is on a compute node):
+
+    salloc --account=<your-ccdb-group> --time=0:30:0 --cpus-per-task=4 --mem=8G \\
            --partition=default
     module load StdEnv/2023 python/3.11
-    cd /scratch/$USER/drc-sokoban-ma   # your repo path
+    cd /scratch/$USER/drc-sokoban-ma
     source /project/6101823/$USER/drc-sokoban-ma/venv/bin/activate
     python -m drc_sokoban.scripts.ma_diagnose_solves --data-dir ... --episodes 5000
 """
